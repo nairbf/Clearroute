@@ -2,143 +2,53 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
-import type { Report, ReportsQuery, CreateReportInput, Comment } from '@/types';
+import type { Report, ReportsQuery, CreateReportInput } from '@/types';
 
-const supabase = createClient();
-
-// Fetch reports with filters
-export function useReports(query: ReportsQuery) {
+// Fetch reports from API (not directly from Supabase)
+export function useReports(params: ReportsQuery = {}) {
   return useQuery({
-    queryKey: ['reports', query],
+    queryKey: ['reports', params],
     queryFn: async () => {
-      let q = supabase
-        .from('reports')
-        .select(`
-          *,
-          user:profiles!user_id(username, trust_score)
-        `)
-        .eq('status', 'active')
-        .order('created_at', { ascending: false })
-        .limit(query.limit || 50);
+      const searchParams = new URLSearchParams();
+      
+      if (params.minutes) searchParams.set('minutes', params.minutes.toString());
+      if (params.county) searchParams.set('county', params.county);
+      if (params.condition) searchParams.set('condition', params.condition);
+      if (params.passability) searchParams.set('passability', params.passability);
+      if (params.limit) searchParams.set('limit', params.limit.toString());
 
-      // Time filter
-      if (query.minutes) {
-        const since = new Date(Date.now() - query.minutes * 60 * 1000).toISOString();
-        q = q.gte('created_at', since);
+      const response = await fetch(`/api/reports?${searchParams.toString()}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch reports');
       }
 
-      // County filter
-      if (query.county) {
-        q = q.eq('county', query.county);
-      }
-
-      // Condition filter
-      if (query.condition) {
-        q = q.eq('condition', query.condition);
-      }
-
-      // Passability filter
-      if (query.passability) {
-        q = q.eq('passability', query.passability);
-      }
-
-      // Bounds filter (for map view)
-      if (query.bounds) {
-        // PostGIS query for bounding box
-        q = q.filter(
-          'location',
-          'cd',
-          `SRID=4326;POLYGON((${query.bounds.west} ${query.bounds.south}, ${query.bounds.east} ${query.bounds.south}, ${query.bounds.east} ${query.bounds.north}, ${query.bounds.west} ${query.bounds.north}, ${query.bounds.west} ${query.bounds.south}))`
-        );
-      }
-
-      // Cursor pagination
-      if (query.cursor) {
-        q = q.lt('id', query.cursor);
-      }
-
-      const { data, error } = await q;
-
-      if (error) throw error;
-
-      // Transform PostGIS point to simple lat/lng
-      return (data || []).map((report: any) => ({
-        ...report,
-        location: report.location
-          ? {
-              lat: report.location.coordinates[1],
-              lng: report.location.coordinates[0],
-            }
-          : null,
-      })) as Report[];
+      const data = await response.json();
+      return data.reports as Report[];
     },
-    staleTime: 30 * 1000, // 30 seconds
-    refetchInterval: 60 * 1000, // Refetch every minute
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
   });
 }
 
-// Fetch single report with comments
-export function useReport(id: string) {
-  return useQuery({
-    queryKey: ['report', id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('reports')
-        .select(`
-          *,
-          user:profiles!user_id(username, trust_score),
-          comments(
-            *,
-            user:profiles!user_id(username, trust_score)
-          )
-        `)
-        .eq('id', id)
-        .single();
-
-      if (error) throw error;
-
-      return {
-        ...data,
-        location: data.location
-          ? {
-              lat: data.location.coordinates[1],
-              lng: data.location.coordinates[0],
-            }
-          : null,
-      } as Report & { comments: Comment[] };
-    },
-    enabled: !!id,
-  });
-}
-
-// Create report
+// Create a new report
 export function useCreateReport() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (input: CreateReportInput) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) throw new Error('Must be logged in to create a report');
+      const response = await fetch('/api/reports', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(input),
+      });
 
-      const { data, error } = await supabase
-        .from('reports')
-        .insert({
-          user_id: user.id,
-          location: `SRID=4326;POINT(${input.lng} ${input.lat})`,
-          location_name: input.location_name,
-          county: input.county,
-          road_name: input.road_name,
-          condition: input.condition,
-          passability: input.passability,
-          notes: input.notes,
-          photo_urls: input.photo_ids || [],
-        })
-        .select()
-        .single();
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create report');
+      }
 
-      if (error) throw error;
-      return data;
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reports'] });
@@ -146,15 +56,15 @@ export function useCreateReport() {
   });
 }
 
-// Upvote report
+// Upvote a report
 export function useUpvote() {
   const queryClient = useQueryClient();
+  const supabase = createClient();
 
   return useMutation({
     mutationFn: async ({ reportId, remove }: { reportId: string; remove?: boolean }) => {
       const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) throw new Error('Must be logged in to upvote');
+      if (!user) throw new Error('Not authenticated');
 
       if (remove) {
         const { error } = await supabase
@@ -170,132 +80,37 @@ export function useUpvote() {
         if (error) throw error;
       }
     },
-    onSuccess: (_, { reportId }) => {
-      queryClient.invalidateQueries({ queryKey: ['report', reportId] });
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reports'] });
     },
   });
 }
 
-// Confirm report ("still accurate")
+// Confirm a report
 export function useConfirm() {
   const queryClient = useQueryClient();
+  const supabase = createClient();
 
   return useMutation({
     mutationFn: async (reportId: string) => {
       const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) throw new Error('Must be logged in to confirm');
+      if (!user) throw new Error('Not authenticated');
 
       const { error } = await supabase
         .from('confirmations')
         .insert({ report_id: reportId, user_id: user.id });
-
       if (error) throw error;
     },
-    onSuccess: (_, reportId) => {
-      queryClient.invalidateQueries({ queryKey: ['report', reportId] });
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['reports'] });
     },
   });
 }
 
-// Flag report
-export function useFlag() {
-  return useMutation({
-    mutationFn: async ({ 
-      reportId, 
-      reason, 
-      details 
-    }: { 
-      reportId: string; 
-      reason: string; 
-      details?: string;
-    }) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) throw new Error('Must be logged in to flag');
-
-      const { error } = await supabase
-        .from('flags')
-        .insert({ 
-          report_id: reportId, 
-          user_id: user.id,
-          reason,
-          details,
-        });
-
-      if (error) throw error;
-    },
-  });
-}
-
-// Add comment
-export function useAddComment() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ reportId, content }: { reportId: string; content: string }) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) throw new Error('Must be logged in to comment');
-
-      const { data, error } = await supabase
-        .from('comments')
-        .insert({ 
-          report_id: reportId, 
-          user_id: user.id,
-          content,
-        })
-        .select(`
-          *,
-          user:profiles!user_id(username, trust_score)
-        `)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-    onSuccess: (_, { reportId }) => {
-      queryClient.invalidateQueries({ queryKey: ['report', reportId] });
-    },
-  });
-}
-
-// Upload photo
-export function useUploadPhoto() {
-  return useMutation({
-    mutationFn: async (file: File) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) throw new Error('Must be logged in to upload');
-
-      // Generate unique filename
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
-
-      // Upload to Supabase Storage
-      const { data, error } = await supabase.storage
-        .from('report-photos')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false,
-        });
-
-      if (error) throw error;
-
-      // Get public URL
-      const { data: { publicUrl } } = supabase.storage
-        .from('report-photos')
-        .getPublicUrl(data.path);
-
-      return { path: data.path, url: publicUrl };
-    },
-  });
-}
-
-// Check if user has upvoted a report
+// Check if user has upvoted
 export function useHasUpvoted(reportId: string) {
+  const supabase = createClient();
+
   return useQuery({
     queryKey: ['upvoted', reportId],
     queryFn: async () => {
@@ -314,8 +129,10 @@ export function useHasUpvoted(reportId: string) {
   });
 }
 
-// Check if user has confirmed a report
+// Check if user has confirmed
 export function useHasConfirmed(reportId: string) {
+  const supabase = createClient();
+
   return useQuery({
     queryKey: ['confirmed', reportId],
     queryFn: async () => {
@@ -330,6 +147,33 @@ export function useHasConfirmed(reportId: string) {
         .single();
 
       return !!data;
+    },
+  });
+}
+
+// Upload photo
+export function useUploadPhoto() {
+  const supabase = createClient();
+
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${user.id}/${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('report-photos')
+        .upload(fileName, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('report-photos')
+        .getPublicUrl(fileName);
+
+      return { url: publicUrl };
     },
   });
 }

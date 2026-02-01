@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Inter, Outfit } from 'next/font/google';
 import './globals.css';
 import { Providers } from './providers';
+import { InstallPrompt } from '@/components/InstallPrompt';
 
 const inter = Inter({
   subsets: ['latin'],
@@ -14,12 +15,12 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: 'CNY Plow Report - Community Road Conditions',
+  title: 'ClearRoute - CNY Road Conditions',
   description: 'Know before you go. Real-time road conditions and plow status for Central New York.',
   keywords: ['road conditions', 'snow', 'plow', 'Syracuse', 'CNY', 'winter driving'],
-  authors: [{ name: 'CNY Plow Report' }],
+  authors: [{ name: 'ClearRoute' }],
   openGraph: {
-    title: 'CNY Plow Report',
+    title: 'ClearRoute - CNY Road Conditions',
     description: 'Real-time road conditions for Central New York',
     type: 'website',
   },
@@ -27,7 +28,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'CNY Plow',
+    title: 'ClearRoute',
   },
 };
 
@@ -47,7 +48,10 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${outfit.variable}`}>
       <body className="font-sans bg-slate-50 text-slate-900 antialiased">
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <InstallPrompt />
+        </Providers>
       </body>
     </html>
   );

@@ -1,38 +1,43 @@
-// Database types matching Supabase schema
-
+// Road condition types
 export type RoadCondition = 'clear' | 'wet' | 'slush' | 'snow' | 'ice' | 'whiteout';
 export type Passability = 'ok' | 'slow' | 'avoid';
 export type County = 'onondaga' | 'oswego' | 'madison' | 'cayuga' | 'oneida' | 'cortland';
-export type UserRole = 'user' | 'moderator' | 'admin';
-export type ReportStatus = 'active' | 'hidden' | 'deleted';
-export type FlagReason = 'spam' | 'inaccurate' | 'inappropriate' | 'privacy' | 'other';
+export type ReportStatus = 'active' | 'hidden' | 'deleted' | 'expired';
+export type UpdateType = 'plowed' | 'clearing' | 'worse' | 'same';
 
+// Location
+export interface Location {
+  lat: number;
+  lng: number;
+}
+
+// User profile
 export interface Profile {
   id: string;
   username: string;
-  display_name: string | null;
-  role: UserRole;
+  display_name?: string;
+  email?: string;
+  avatar_url?: string;
   trust_score: number;
   report_count: number;
   accurate_count: number;
+  role: 'user' | 'moderator' | 'admin';
+  banned_at?: string | null;
+  ban_reason?: string | null;
   created_at: string;
-  banned_at: string | null;
-  ban_reason: string | null;
 }
 
+// Report
 export interface Report {
   id: string;
-  user_id: string | null;
-  location: {
-    lat: number;
-    lng: number;
-  };
-  location_name: string | null;
+  user_id: string;
+  location: Location | null;
+  location_name?: string;
+  road_name?: string;
   county: County;
-  road_name: string | null;
   condition: RoadCondition;
   passability: Passability;
-  notes: string | null;
+  notes?: string;
   photo_urls: string[];
   upvote_count: number;
   confirmation_count: number;
@@ -41,107 +46,132 @@ export interface Report {
   confidence_score: number;
   status: ReportStatus;
   created_at: string;
-  last_confirmed_at: string;
-  expires_at: string;
-  // Joined fields
-  user?: Pick<Profile, 'username' | 'trust_score'>;
+  last_confirmed_at?: string;
+  expires_at?: string;
+  latest_update?: UpdateType | null;
+  latest_update_at?: string | null;
+  plowed_count?: number;
+  user?: {
+    username: string;
+    trust_score: number;
+  };
 }
 
+// Comment
 export interface Comment {
   id: string;
   report_id: string;
-  user_id: string | null;
+  user_id: string;
   content: string;
   created_at: string;
-  user?: Pick<Profile, 'username' | 'trust_score'>;
-}
-
-export interface Upvote {
-  id: string;
-  report_id: string;
-  user_id: string;
-  created_at: string;
-}
-
-export interface Confirmation {
-  id: string;
-  report_id: string;
-  user_id: string;
-  created_at: string;
-}
-
-export interface Flag {
-  id: string;
-  report_id: string;
-  user_id: string | null;
-  reason: FlagReason;
-  details: string | null;
-  reviewed_at: string | null;
-  reviewed_by: string | null;
-  created_at: string;
-}
-
-// API types
-export interface ReportsQuery {
-  bounds?: {
-    north: number;
-    south: number;
-    east: number;
-    west: number;
+  user?: {
+    username: string;
+    trust_score: number;
   };
-  county?: County;
-  condition?: RoadCondition;
-  passability?: Passability;
-  minutes?: 15 | 30 | 60 | 120;
-  cursor?: string;
-  limit?: number;
 }
 
-export interface CreateReportInput {
-  lat: number;
-  lng: number;
-  location_name?: string;
-  county: County;
-  road_name?: string;
-  condition: RoadCondition;
-  passability: Passability;
+// Road Update
+export interface RoadUpdate {
+  id: string;
+  report_id: string;
+  user_id: string;
+  update_type: UpdateType;
   notes?: string;
-  photo_ids?: string[];
+  created_at: string;
+  user?: {
+    username: string;
+  };
 }
 
-// Map types
+// Map viewport
 export interface MapViewport {
   latitude: number;
   longitude: number;
   zoom: number;
 }
 
-export interface ClusterProperties {
-  cluster: boolean;
-  cluster_id?: number;
-  point_count?: number;
-  point_count_abbreviated?: string;
-}
-
-export interface ReportPoint {
-  type: 'Feature';
-  properties: Report & ClusterProperties;
-  geometry: {
-    type: 'Point';
-    coordinates: [number, number]; // [lng, lat]
-  };
-}
-
-// UI types
+// Filter state
 export interface FilterState {
-  minutes: 15 | 30 | 60 | 120;
+  minutes: number;
   county: County | 'all';
   condition: RoadCondition | 'all';
   passability: Passability | 'all';
 }
 
+// Report query params
+export interface ReportsQuery {
+  minutes?: number;
+  county?: County;
+  condition?: RoadCondition;
+  passability?: Passability;
+  bounds?: {
+    north: number;
+    south: number;
+    east: number;
+    west: number;
+  };
+  limit?: number;
+  cursor?: string;
+}
+
+// Create report input
+export interface CreateReportInput {
+  lat: number;
+  lng: number;
+  location_name?: string;
+  road_name?: string;
+  county: County;
+  condition: RoadCondition;
+  passability: Passability;
+  notes?: string;
+  photo_urls?: string[];
+}
+
+// GeoJSON point for clustering
+export interface ReportPoint {
+  type: 'Feature';
+  properties: Report & { cluster: boolean };
+  geometry: {
+    type: 'Point';
+    coordinates: [number, number];
+  };
+}
+
 // Constants
-export const COUNTIES: { value: County; label: string }[] = [
+export const CNY_CENTER: Location = {
+  lat: 43.0481,
+  lng: -76.1474,
+};
+
+export const CONDITIONS: Array<{
+  value: RoadCondition;
+  label: string;
+  emoji: string;
+  color: string;
+}> = [
+  { value: 'clear', label: 'Clear', emoji: '🟢', color: '#22c55e' },
+  { value: 'wet', label: 'Wet', emoji: '🔵', color: '#3b82f6' },
+  { value: 'slush', label: 'Slush', emoji: '🟡', color: '#f59e0b' },
+  { value: 'snow', label: 'Snow', emoji: '🟠', color: '#f97316' },
+  { value: 'ice', label: 'Ice', emoji: '🔴', color: '#ef4444' },
+  { value: 'whiteout', label: 'Whiteout', emoji: '🟣', color: '#8b5cf6' },
+];
+
+export const PASSABILITIES: Array<{
+  value: Passability;
+  label: string;
+  icon: string;
+  color: string;
+}> = [
+  { value: 'ok', label: 'OK to drive', icon: '✓', color: '#22c55e' },
+  { value: 'slow', label: 'Slow down', icon: '⚠', color: '#f59e0b' },
+  { value: 'avoid', label: 'Avoid', icon: '✕', color: '#ef4444' },
+];
+
+export const COUNTIES: Array<{
+  value: County;
+  label: string;
+}> = [
   { value: 'onondaga', label: 'Onondaga' },
   { value: 'oswego', label: 'Oswego' },
   { value: 'madison', label: 'Madison' },
@@ -150,37 +180,12 @@ export const COUNTIES: { value: County; label: string }[] = [
   { value: 'cortland', label: 'Cortland' },
 ];
 
-export const CONDITIONS: { value: RoadCondition; label: string; color: string; emoji: string }[] = [
-  { value: 'clear', label: 'Clear', color: '#22c55e', emoji: '🟢' },
-  { value: 'wet', label: 'Wet', color: '#3b82f6', emoji: '🔵' },
-  { value: 'slush', label: 'Slush', color: '#f59e0b', emoji: '🟡' },
-  { value: 'snow', label: 'Snow', color: '#f97316', emoji: '🟠' },
-  { value: 'ice', label: 'Ice', color: '#ef4444', emoji: '🔴' },
-  { value: 'whiteout', label: 'Whiteout', color: '#7c3aed', emoji: '🟣' },
-];
-
-export const PASSABILITIES: { value: Passability; label: string; color: string; icon: string }[] = [
-  { value: 'ok', label: 'OK to drive', color: '#22c55e', icon: '✓' },
-  { value: 'slow', label: 'Slow down', color: '#f59e0b', icon: '⚠' },
-  { value: 'avoid', label: 'Avoid', color: '#ef4444', icon: '✕' },
-];
-
-export const TIME_FILTERS: { value: 15 | 30 | 60 | 120; label: string }[] = [
+export const TIME_FILTERS: Array<{
+  value: number;
+  label: string;
+}> = [
   { value: 15, label: '15 min' },
   { value: 30, label: '30 min' },
   { value: 60, label: '1 hour' },
   { value: 120, label: '2 hours' },
 ];
-
-// Central NY bounds
-export const CNY_BOUNDS = {
-  north: 44.0,
-  south: 42.5,
-  east: -75.0,
-  west: -77.0,
-};
-
-export const CNY_CENTER = {
-  lat: 43.0481,
-  lng: -76.1474,
-};

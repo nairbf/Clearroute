@@ -7,11 +7,16 @@ import {
   Image as ImageIcon, 
   MapPin, 
   Loader2,
-  AlertTriangle 
+  AlertTriangle,
+  Check,
+  Navigation,
+  Map
 } from 'lucide-react';
 import { useCreateReport, useUploadPhoto } from '@/hooks/useReports';
 import { cn, isWithinCNYBounds } from '@/lib/utils';
 import { CONDITIONS, PASSABILITIES, COUNTIES, CNY_CENTER } from '@/types';
+import { LocationPicker } from './LocationPicker';
+import { useToast } from '@/components/Toast';
 import type { RoadCondition, Passability, County } from '@/types';
 
 interface PostModalProps {
@@ -20,26 +25,30 @@ interface PostModalProps {
 }
 
 export function PostModal({ open, onClose }: PostModalProps) {
-  const [step, setStep] = useState<'form' | 'location'>('form');
+  const { showToast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const createReportMutation = useCreateReport();
+  const uploadPhotoMutation = useUploadPhoto();
+
+  const [step, setStep] = useState<'location' | 'form' | 'success'>('location');
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [condition, setCondition] = useState<RoadCondition | null>(null);
   const [passability, setPassability] = useState<Passability | null>(null);
   const [county, setCounty] = useState<County | null>(null);
   const [notes, setNotes] = useState('');
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [locationName, setLocationName] = useState('');
+  const [roadName, setRoadName] = useState<string | null>(null);
+  const [locationDisplay, setLocationDisplay] = useState<string>('');
   const [gettingLocation, setGettingLocation] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const createReport = useCreateReport();
-  const uploadPhoto = useUploadPhoto();
 
   // Get user location on open
   useEffect(() => {
     if (open && !location) {
-      getLocation();
+      getInitialLocation();
     }
   }, [open]);
 
@@ -47,23 +56,25 @@ export function PostModal({ open, onClose }: PostModalProps) {
   useEffect(() => {
     if (!open) {
       setTimeout(() => {
-        setStep('form');
+        setStep('location');
         setPhoto(null);
         setPhotoPreview(null);
+        setPhotoUrl(null);
         setCondition(null);
         setPassability(null);
         setCounty(null);
         setNotes('');
         setLocation(null);
-        setLocationName('');
+        setRoadName(null);
+        setLocationDisplay('');
         setError(null);
       }, 300);
     }
   }, [open]);
 
-  const getLocation = () => {
+  const getInitialLocation = () => {
     if (!navigator.geolocation) {
-      setError('Geolocation is not supported by your browser');
+      setLocation(CNY_CENTER);
       return;
     }
 
@@ -71,36 +82,55 @@ export function PostModal({ open, onClose }: PostModalProps) {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        
-        if (!isWithinCNYBounds(latitude, longitude)) {
-          setError('Your location appears to be outside Central NY. Please adjust the pin.');
-        }
-        
         setLocation({ lat: latitude, lng: longitude });
         setGettingLocation(false);
-        
-        // TODO: Reverse geocode to get location name
-        setLocationName(`${latitude.toFixed(4)}, ${longitude.toFixed(4)}`);
       },
-      (err) => {
-        setError('Unable to get your location. Please enter it manually.');
-        setGettingLocation(false);
-        // Default to Syracuse
+      () => {
         setLocation(CNY_CENTER);
+        setGettingLocation(false);
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
   };
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleLocationSelect = (data: {
+    lat: number;
+    lng: number;
+    roadName: string | null;
+    locationDisplay: string;
+    county: County | null;
+  }) => {
+    setLocation({ lat: data.lat, lng: data.lng });
+    setRoadName(data.roadName);
+    setLocationDisplay(data.locationDisplay);
+    if (data.county) {
+      setCounty(data.county);
+    }
+    setStep('form');
+  };
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setPhoto(file);
+      
       const reader = new FileReader();
       reader.onloadend = () => {
         setPhotoPreview(reader.result as string);
       };
       reader.readAsDataURL(file);
+
+      setUploadingPhoto(true);
+      try {
+        const result = await uploadPhotoMutation.mutateAsync(file);
+        setPhotoUrl(result.url);
+      } catch (err) {
+        setError('Failed to upload photo. You can still submit without it.');
+        setPhoto(null);
+        setPhotoPreview(null);
+      } finally {
+        setUploadingPhoto(false);
+      }
     }
   };
 
@@ -113,46 +143,83 @@ export function PostModal({ open, onClose }: PostModalProps) {
     setError(null);
 
     try {
-      let photoUrl: string | undefined;
-
-      // Upload photo if exists
-      if (photo) {
-        const result = await uploadPhoto.mutateAsync(photo);
-        photoUrl = result.url;
-      }
-
-      // Create report
-      await createReport.mutateAsync({
+      await createReportMutation.mutateAsync({
         lat: location.lat,
         lng: location.lng,
-        location_name: locationName || undefined,
+        location_name: locationDisplay || `${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}`,
+        road_name: roadName || undefined,
         county,
         condition,
         passability,
         notes: notes || undefined,
-        photo_ids: photoUrl ? [photoUrl] : undefined,
+        photo_urls: photoUrl ? [photoUrl] : undefined,
       });
 
-      onClose();
+      setStep('success');
+      showToast('success', 'Report submitted successfully!');
+      
+      setTimeout(() => {
+        onClose();
+      }, 2000);
+
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit report');
+      showToast('error', 'Failed to submit report');
     }
   };
 
-  const isSubmitting = createReport.isPending || uploadPhoto.isPending;
-  const canSubmit = condition && passability && county && location && !isSubmitting;
+  const isSubmitting = createReportMutation.isPending;
+  const canSubmit = condition && passability && county && location && !isSubmitting && !uploadingPhoto;
 
   if (!open) return null;
 
+  // Loading initial location
+  if (gettingLocation) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="bg-white rounded-2xl p-8 mx-4 text-center">
+          <Loader2 className="w-12 h-12 text-blue-600 animate-spin mx-auto mb-4" />
+          <p className="text-slate-600">Getting your location...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 1: Location picker
+  if (step === 'location') {
+    return (
+      <LocationPicker
+        initialLocation={location}
+        onLocationSelect={handleLocationSelect}
+        onClose={onClose}
+      />
+    );
+  }
+
+  // Success state
+  if (step === 'success') {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center">
+        <div className="absolute inset-0 bg-black/50" />
+        <div className="relative bg-white rounded-2xl p-8 mx-4 text-center">
+          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Check className="w-8 h-8 text-green-600" />
+          </div>
+          <h2 className="text-xl font-semibold mb-2">Report Submitted!</h2>
+          <p className="text-slate-600">Thanks for helping keep CNY roads safe.</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 2: Report form
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
-      {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/50"
         onClick={onClose}
       />
 
-      {/* Modal */}
       <div className="relative w-full sm:max-w-lg max-h-[90vh] bg-white rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
@@ -175,34 +242,33 @@ export function PostModal({ open, onClose }: PostModalProps) {
             </div>
           )}
 
-          {/* Location */}
+          {/* Selected Location (tap to change) */}
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
               📍 Location
             </label>
-            <div className="flex items-center gap-2">
-              <div className="flex-1 p-3 bg-slate-100 rounded-lg text-sm">
-                {gettingLocation ? (
-                  <span className="flex items-center gap-2 text-slate-500">
-                    <Loader2 size={16} className="animate-spin" />
-                    Getting location...
-                  </span>
-                ) : location ? (
-                  <span className="text-slate-700">
-                    {locationName || `${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}`}
-                  </span>
+            <button
+              onClick={() => setStep('location')}
+              className="w-full flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-left hover:bg-blue-100 transition-colors"
+            >
+              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
+                <MapPin size={20} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                {roadName ? (
+                  <>
+                    <p className="font-semibold text-slate-900 truncate">{roadName}</p>
+                    <p className="text-sm text-slate-500 truncate">{locationDisplay}</p>
+                  </>
                 ) : (
-                  <span className="text-slate-500">Location not set</span>
+                  <>
+                    <p className="font-medium text-slate-700 truncate">{locationDisplay}</p>
+                    <p className="text-sm text-slate-500">Tap to select a road</p>
+                  </>
                 )}
               </div>
-              <button
-                onClick={getLocation}
-                disabled={gettingLocation}
-                className="btn-secondary !py-2"
-              >
-                <MapPin size={18} />
-              </button>
-            </div>
+              <Map size={20} className="text-blue-600 flex-shrink-0" />
+            </button>
           </div>
 
           {/* Photo */}
@@ -225,10 +291,21 @@ export function PostModal({ open, onClose }: PostModalProps) {
                   alt="Preview"
                   className="w-full h-48 object-cover rounded-lg"
                 />
+                {uploadingPhoto && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center rounded-lg">
+                    <Loader2 size={32} className="animate-spin text-white" />
+                  </div>
+                )}
+                {!uploadingPhoto && photoUrl && (
+                  <div className="absolute top-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                    <Check size={12} /> Uploaded
+                  </div>
+                )}
                 <button
                   onClick={() => {
                     setPhoto(null);
                     setPhotoPreview(null);
+                    setPhotoUrl(null);
                   }}
                   className="absolute top-2 right-2 p-1.5 bg-black/50 text-white rounded-full hover:bg-black/70"
                 >
@@ -238,8 +315,13 @@ export function PostModal({ open, onClose }: PostModalProps) {
             ) : (
               <div className="flex gap-2">
                 <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex-1 flex items-center justify-center gap-2 py-8 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-brand-primary hover:text-brand-primary transition-colors"
+                  onClick={() => {
+                    if (fileInputRef.current) {
+                      fileInputRef.current.setAttribute('capture', 'environment');
+                      fileInputRef.current.click();
+                    }
+                  }}
+                  className="flex-1 flex items-center justify-center gap-2 py-8 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-blue-500 hover:text-blue-500 transition-colors"
                 >
                   <Camera size={24} />
                   <span>Take Photo</span>
@@ -251,7 +333,7 @@ export function PostModal({ open, onClose }: PostModalProps) {
                       fileInputRef.current.click();
                     }
                   }}
-                  className="flex-1 flex items-center justify-center gap-2 py-8 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-brand-primary hover:text-brand-primary transition-colors"
+                  className="flex-1 flex items-center justify-center gap-2 py-8 border-2 border-dashed border-slate-300 rounded-lg text-slate-500 hover:border-blue-500 hover:text-blue-500 transition-colors"
                 >
                   <ImageIcon size={24} />
                   <span>Gallery</span>
@@ -267,6 +349,7 @@ export function PostModal({ open, onClose }: PostModalProps) {
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">
               County *
+              {county && <span className="text-green-600 text-xs ml-1">(auto-detected)</span>}
             </label>
             <div className="grid grid-cols-3 gap-2">
               {COUNTIES.map((c) => (
@@ -276,7 +359,7 @@ export function PostModal({ open, onClose }: PostModalProps) {
                   className={cn(
                     'py-2.5 px-3 rounded-lg text-sm font-medium border-2 transition-colors',
                     county === c.value
-                      ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
+                      ? 'border-blue-600 bg-blue-50 text-blue-600'
                       : 'border-slate-200 text-slate-700 hover:border-slate-300'
                   )}
                 >
@@ -297,7 +380,7 @@ export function PostModal({ open, onClose }: PostModalProps) {
                   key={c.value}
                   onClick={() => setCondition(c.value)}
                   className={cn(
-                    'py-3 px-3 rounded-lg text-sm font-medium border-2 transition-colors',
+                    'py-3 px-3 rounded-lg text-sm font-medium border-2 transition-colors text-center',
                     condition === c.value
                       ? 'border-2'
                       : 'border-slate-200 text-slate-700 hover:border-slate-300'
@@ -354,10 +437,10 @@ export function PostModal({ open, onClose }: PostModalProps) {
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Describe what you see..."
+              placeholder="Describe what you see... (e.g., 'Plowed but icy patches near the bridge')"
               rows={3}
               maxLength={500}
-              className="input resize-none"
+              className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none resize-none"
             />
             <p className="text-xs text-slate-400 mt-1 text-right">
               {notes.length}/500
@@ -371,15 +454,22 @@ export function PostModal({ open, onClose }: PostModalProps) {
             onClick={handleSubmit}
             disabled={!canSubmit}
             className={cn(
-              'w-full btn-primary',
-              !canSubmit && 'opacity-50 cursor-not-allowed'
+              'w-full py-3 rounded-lg font-medium transition-colors flex items-center justify-center gap-2',
+              canSubmit 
+                ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                : 'bg-slate-200 text-slate-400 cursor-not-allowed'
             )}
           >
             {isSubmitting ? (
-              <span className="flex items-center justify-center gap-2">
+              <>
                 <Loader2 size={20} className="animate-spin" />
                 Submitting...
-              </span>
+              </>
+            ) : uploadingPhoto ? (
+              <>
+                <Loader2 size={20} className="animate-spin" />
+                Uploading photo...
+              </>
             ) : (
               'Submit Report'
             )}

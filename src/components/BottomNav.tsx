@@ -1,19 +1,20 @@
 'use client';
 
-import { Map, List, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useAppStore } from '@/lib/store';
 import { useAuth } from '@/hooks/useAuth';
-import { cn } from '@/lib/utils';
 import { PostModal } from './PostModal';
+import { useState } from 'react';
 
 export function BottomNav() {
-  const { activeView, setActiveView, isPostModalOpen, setPostModalOpen } = useAppStore();
+  const { isPostModalOpen, setPostModalOpen } = useAppStore();
   const { user } = useAuth();
+  const [showAuthPrompt, setShowAuthPrompt] = useState(false);
 
   const handlePostClick = () => {
     if (!user) {
-      // TODO: Show auth modal instead
-      alert('Please sign in to post a report');
+      setShowAuthPrompt(true);
+      setTimeout(() => setShowAuthPrompt(false), 3000);
       return;
     }
     setPostModalOpen(true);
@@ -21,45 +22,22 @@ export function BottomNav() {
 
   return (
     <>
-      <nav className="bg-white border-t border-slate-200 safe-bottom">
-        <div className="flex items-center justify-around px-4 py-2">
-          {/* Map tab */}
-          <button
-            onClick={() => setActiveView('map')}
-            className={cn(
-              'flex flex-col items-center gap-1 px-6 py-2 rounded-lg transition-colors',
-              activeView === 'map' 
-                ? 'text-brand-primary' 
-                : 'text-slate-500 hover:text-slate-700'
-            )}
-          >
-            <Map size={24} />
-            <span className="text-xs font-medium">Map</span>
-          </button>
-
-          {/* Post button */}
-          <button
-            onClick={handlePostClick}
-            className="relative -mt-6 w-16 h-16 rounded-full bg-brand-primary text-white shadow-lg flex items-center justify-center hover:bg-blue-900 active:scale-95 transition-all"
-          >
-            <Plus size={28} strokeWidth={2.5} />
-          </button>
-
-          {/* Feed tab */}
-          <button
-            onClick={() => setActiveView('feed')}
-            className={cn(
-              'flex flex-col items-center gap-1 px-6 py-2 rounded-lg transition-colors',
-              activeView === 'feed' 
-                ? 'text-brand-primary' 
-                : 'text-slate-500 hover:text-slate-700'
-            )}
-          >
-            <List size={24} />
-            <span className="text-xs font-medium">Feed</span>
-          </button>
+      {/* Auth prompt toast */}
+      {showAuthPrompt && (
+        <div className="fixed bottom-24 left-4 right-4 bg-slate-900 text-white px-4 py-3 rounded-lg shadow-lg z-50 text-center animate-fade-in">
+          Please sign in to submit a report
         </div>
-      </nav>
+      )}
+
+      {/* Floating action button */}
+      <div className="fixed bottom-6 right-6 z-40">
+        <button
+          onClick={handlePostClick}
+          className="w-14 h-14 rounded-full bg-blue-600 text-white shadow-lg flex items-center justify-center hover:bg-blue-700 active:scale-95 transition-all"
+        >
+          <Plus size={28} strokeWidth={2.5} />
+        </button>
+      </div>
 
       {/* Post modal */}
       <PostModal 

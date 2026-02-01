@@ -1,31 +1,40 @@
 'use client';
 
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import Map, { 
   Marker, 
   Popup, 
   NavigationControl, 
   GeolocateControl,
   type MapRef,
-  type ViewStateChangeEvent 
 } from 'react-map-gl/maplibre';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import useSupercluster from 'use-supercluster';
 import { useAppStore } from '@/lib/store';
 import { useReports } from '@/hooks/useReports';
 import { ReportCard } from './ReportCard';
-import { cn, getConditionColor } from '@/lib/utils';
-import type { Report, ReportPoint } from '@/types';
-import { CNY_CENTER, CNY_BOUNDS } from '@/types';
+import { getConditionColor } from '@/lib/utils';
+import type { Report } from '@/types';
 
-// Stadia Maps style URL (free tier)
 const MAP_STYLE = 'https://tiles.stadiamaps.com/styles/alidade_smooth.json';
+
+const CNY_CENTER = { lat: 43.0481, lng: -76.1474 };
+const CNY_BOUNDS: [[number, number], [number, number]] = [
+  [-77.5, 42.0],
+  [-74.5, 44.5],
+];
 
 export function MapView() {
   const mapRef = useRef<MapRef>(null);
-  const { viewport, setViewport, filters, selectedReport, setSelectedReport } = useAppStore();
-  const [bounds, setBounds] = useState<[number, number, number, number] | null>(null);
+  const { filters, selectedReport, setSelectedReport } = useAppStore();
+  
+  const [viewState, setViewState] = useState({
+    latitude: CNY_CENTER.lat,
+    longitude: CNY_CENTER.lng,
+    zoom: 9,
+  });
+  const [bounds, setBounds] = useState<[number, number, number, number]>([-77.5, 42.0, -74.5, 44.5]);
 
-  // Fetch reports with current filters
   const { data: reports = [], isLoading } = useReports({
     minutes: filters.minutes,
     county: filters.county !== 'all' ? filters.county : undefined,
@@ -33,56 +42,51 @@ export function MapView() {
     passability: filters.passability !== 'all' ? filters.passability : undefined,
   });
 
-  // Convert reports to GeoJSON points for clustering
-  const points: ReportPoint[] = reports.map((report) => ({
-    type: 'Feature',
-    properties: { 
-      cluster: false,
-      ...report,
-    },
-    geometry: {
-      type: 'Point',
-      coordinates: [report.location.lng, report.location.lat],
-    },
-  }));
+  // Filter reports with valid locations
+  const validReports = useMemo(() => {
+    const valid = reports.filter(r => 
+      r.location && 
+      typeof r.location.lat === 'number' && 
+      typeof r.location.lng === 'number' &&
+      r.location.lat !== 0 &&
+      r.location.lng !== 0
+    );
+    console.log(`MapView: ${reports.length} total, ${valid.length} with valid locations`);
+    if (valid.length > 0) {
+      console.log('First valid report location:', valid[0].location);
+    }
+    return valid;
+  }, [reports]);
 
-  // Setup supercluster
+  // Convert to GeoJSON points
+  const points = useMemo(() => 
+    validReports.map((report) => ({
+      type: 'Feature' as const,
+      properties: { 
+        cluster: false,
+        reportId: report.id,
+        report: report,
+      },
+      geometry: {
+        type: 'Point' as const,
+        coordinates: [report.location!.lng, report.location!.lat],
+      },
+    })), [validReports]);
+
+  // Clustering
   const { clusters, supercluster } = useSupercluster({
     points,
-    bounds: bounds || undefined,
-    zoom: viewport.zoom,
+    bounds,
+    zoom: viewState.zoom,
     options: { 
       radius: 60, 
       maxZoom: 16,
-      map: (props) => ({
-        condition: props.condition,
-        passability: props.passability,
-      }),
-      reduce: (acc, props) => {
-        // Keep worst condition in cluster
-        const severity = { clear: 0, wet: 1, slush: 2, snow: 3, ice: 4, whiteout: 5 };
-        if (severity[props.condition as keyof typeof severity] > severity[acc.condition as keyof typeof severity]) {
-          acc.condition = props.condition;
-        }
-        // Keep worst passability
-        const passSeverity = { ok: 0, slow: 1, avoid: 2 };
-        if (passSeverity[props.passability as keyof typeof passSeverity] > passSeverity[acc.passability as keyof typeof passSeverity]) {
-          acc.passability = props.passability;
-        }
-      },
+      minPoints: 2,
     },
   });
 
-  // Update bounds when map moves
-  const handleMove = useCallback((evt: ViewStateChangeEvent) => {
-    setViewport({
-      latitude: evt.viewState.latitude,
-      longitude: evt.viewState.longitude,
-      zoom: evt.viewState.zoom,
-    });
-  }, [setViewport]);
-
-  const handleMoveEnd = useCallback(() => {
+  // Update bounds
+  const updateBounds = useCallback(() => {
     const map = mapRef.current?.getMap();
     if (map) {
       const b = map.getBounds();
@@ -95,50 +99,32 @@ export function MapView() {
     }
   }, []);
 
-  // Initial bounds
   useEffect(() => {
-    handleMoveEnd();
-  }, [handleMoveEnd]);
+    const timer = setTimeout(updateBounds, 100);
+    return () => clearTimeout(timer);
+  }, [updateBounds]);
 
-  // Handle cluster click - zoom in
-  const handleClusterClick = (clusterId: number, lat: number, lng: number) => {
+  const handleClusterClick = useCallback((clusterId: number, lat: number, lng: number) => {
     if (!supercluster) return;
-    
-    const zoom = Math.min(
-      supercluster.getClusterExpansionZoom(clusterId),
-      16
-    );
-    
-    mapRef.current?.flyTo({
-      center: [lng, lat],
-      zoom,
-      duration: 500,
-    });
-  };
+    const zoom = Math.min(supercluster.getClusterExpansionZoom(clusterId), 16);
+    mapRef.current?.flyTo({ center: [lng, lat], zoom, duration: 500 });
+  }, [supercluster]);
 
   return (
     <div className="h-full w-full relative">
       <Map
         ref={mapRef}
-        {...viewport}
-        onMove={handleMove}
-        onMoveEnd={handleMoveEnd}
+        {...viewState}
+        onMove={(evt) => setViewState(evt.viewState)}
+        onMoveEnd={updateBounds}
         mapStyle={MAP_STYLE}
         style={{ width: '100%', height: '100%' }}
-        maxBounds={[
-          [CNY_BOUNDS.west - 0.5, CNY_BOUNDS.south - 0.5],
-          [CNY_BOUNDS.east + 0.5, CNY_BOUNDS.north + 0.5],
-        ]}
+        maxBounds={CNY_BOUNDS}
         minZoom={7}
         maxZoom={18}
       >
-        {/* Navigation controls */}
         <NavigationControl position="top-right" />
-        <GeolocateControl 
-          position="top-right" 
-          trackUserLocation
-          showUserHeading
-        />
+        <GeolocateControl position="top-right" trackUserLocation />
 
         {/* Render clusters and individual markers */}
         {clusters.map((cluster) => {
@@ -146,10 +132,7 @@ export function MapView() {
           const { cluster: isCluster, point_count: pointCount } = cluster.properties;
 
           if (isCluster) {
-            // Cluster marker
-            const clusterProps = cluster.properties as any;
-            const worstCondition = clusterProps.condition || 'snow';
-            
+            const size = Math.min(50, Math.max(30, 30 + (pointCount / points.length) * 30));
             return (
               <Marker
                 key={`cluster-${cluster.id}`}
@@ -158,23 +141,19 @@ export function MapView() {
                 anchor="center"
               >
                 <div
-                  className="cluster-marker"
-                  style={{ 
-                    backgroundColor: getConditionColor(worstCondition),
-                    width: `${30 + (pointCount! / points.length) * 30}px`,
-                    height: `${30 + (pointCount! / points.length) * 30}px`,
-                  }}
                   onClick={() => handleClusterClick(cluster.id as number, lat, lng)}
+                  className="rounded-full border-3 border-white shadow-lg flex items-center justify-center cursor-pointer hover:scale-110 transition-transform bg-blue-600"
+                  style={{ width: `${size}px`, height: `${size}px` }}
                 >
-                  {pointCount}
+                  <span className="text-white font-bold text-sm">{pointCount}</span>
                 </div>
               </Marker>
             );
           }
 
-          // Individual report marker
-          const report = cluster.properties as Report;
-          
+          const report = cluster.properties.report as Report;
+          const isSelected = selectedReport?.id === report.id;
+
           return (
             <Marker
               key={`report-${report.id}`}
@@ -187,17 +166,19 @@ export function MapView() {
               }}
             >
               <div
-                className="report-marker w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white font-bold text-xs"
+                className={`w-8 h-8 rounded-full border-2 border-white shadow-lg flex items-center justify-center text-white font-bold text-xs cursor-pointer transition-transform ${
+                  isSelected ? 'scale-125 ring-4 ring-blue-400' : 'hover:scale-110'
+                }`}
                 style={{ backgroundColor: getConditionColor(report.condition) }}
               >
-                {report.condition === 'ice' ? '!' : report.condition[0].toUpperCase()}
+                {report.condition === 'ice' || report.condition === 'whiteout' ? '!' : report.condition[0].toUpperCase()}
               </div>
             </Marker>
           );
         })}
 
-        {/* Selected report popup */}
-        {selectedReport && (
+        {/* Popup */}
+        {selectedReport && selectedReport.location && (
           <Popup
             latitude={selectedReport.location.lat}
             longitude={selectedReport.location.lng}
@@ -205,19 +186,19 @@ export function MapView() {
             onClose={() => setSelectedReport(null)}
             closeButton={true}
             closeOnClick={false}
-            className="report-popup"
             maxWidth="320px"
+            offset={20}
           >
             <ReportCard report={selectedReport} compact />
           </Popup>
         )}
       </Map>
 
-      {/* Loading indicator */}
+      {/* Loading */}
       {isLoading && (
         <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-white rounded-full px-4 py-2 shadow-lg flex items-center gap-2">
-          <div className="w-4 h-4 border-2 border-brand-primary border-t-transparent rounded-full animate-spin" />
-          <span className="text-sm text-slate-600">Loading reports...</span>
+          <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          <span className="text-sm text-slate-600">Loading...</span>
         </div>
       )}
 
@@ -226,27 +207,27 @@ export function MapView() {
         <div className="font-semibold mb-2">Road Conditions</div>
         <div className="grid grid-cols-2 gap-x-4 gap-y-1">
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-condition-clear" />
+            <div className="w-3 h-3 rounded-full bg-green-500" />
             <span>Clear</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-condition-wet" />
+            <div className="w-3 h-3 rounded-full bg-blue-500" />
             <span>Wet</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-condition-slush" />
+            <div className="w-3 h-3 rounded-full bg-amber-500" />
             <span>Slush</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-condition-snow" />
+            <div className="w-3 h-3 rounded-full bg-orange-500" />
             <span>Snow</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-condition-ice" />
+            <div className="w-3 h-3 rounded-full bg-red-500" />
             <span>Ice</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full bg-condition-whiteout" />
+            <div className="w-3 h-3 rounded-full bg-violet-500" />
             <span>Whiteout</span>
           </div>
         </div>
@@ -254,8 +235,8 @@ export function MapView() {
 
       {/* Report count */}
       <div className="absolute top-4 left-4 bg-white rounded-lg shadow-lg px-3 py-2 text-sm">
-        <span className="font-semibold">{reports.length}</span>
-        <span className="text-slate-500"> reports in last {filters.minutes} min</span>
+        <span className="font-semibold">{validReports.length}</span>
+        <span className="text-slate-500"> reports on map</span>
       </div>
     </div>
   );

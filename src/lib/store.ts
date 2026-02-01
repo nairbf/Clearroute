@@ -1,6 +1,10 @@
 import { create } from 'zustand';
 import type { FilterState, MapViewport, Report, Profile } from '@/types';
-import { CNY_CENTER } from '@/types';
+
+const CNY_CENTER = {
+  lat: 43.0481,
+  lng: -76.1474,
+};
 
 interface AppState {
   // Auth
@@ -40,21 +44,21 @@ const defaultViewport: MapViewport = {
   zoom: 9,
 };
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>()((set) => ({
   // Auth
   user: null,
   setUser: (user) => set({ user }),
   
   // Map viewport
   viewport: defaultViewport,
-  setViewport: (viewport) => set((state) => ({ 
-    viewport: { ...state.viewport, ...viewport } 
+  setViewport: (newViewport) => set((state) => ({ 
+    viewport: { ...state.viewport, ...newViewport } 
   })),
   
   // Filters
   filters: defaultFilters,
-  setFilters: (filters) => set((state) => ({ 
-    filters: { ...state.filters, ...filters } 
+  setFilters: (newFilters) => set((state) => ({ 
+    filters: { ...state.filters, ...newFilters } 
   })),
   resetFilters: () => set({ filters: defaultFilters }),
   

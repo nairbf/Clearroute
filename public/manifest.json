@@ -1,7 +1,7 @@
 {
-  "name": "CNY Plow Report",
-  "short_name": "CNY Plow",
-  "description": "Community road conditions for Central New York",
+  "name": "ClearRoute - CNY Road Conditions",
+  "short_name": "ClearRoute",
+  "description": "Community-powered road conditions for Central New York",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f8fafc",

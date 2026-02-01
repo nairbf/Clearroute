@@ -1,21 +1,93 @@
-import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-// GET /api/reports - Fetch reports with filters
+async function createSupabase() {
+  const cookieStore = await cookies();
+
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
+          } catch {}
+        },
+      },
+    }
+  );
+}
+
+// Helper to parse location from location_name
+function parseLocation(report: any): { lat: number; lng: number } | null {
+  const locationName = report.location_name || '';
+  
+  // Pattern 1: "Road Name (43.1234, -76.5678)" or "Road Name (near 43.1234, -76.5678)"
+  const pattern1 = locationName.match(/\((?:near\s*)?([-]?\d+\.?\d*),\s*([-]?\d+\.?\d*)\)/);
+  if (pattern1) {
+    const lat = parseFloat(pattern1[1]);
+    const lng = parseFloat(pattern1[2]);
+    if (isValidCoordinate(lat, lng)) {
+      return { lat, lng };
+    }
+  }
+
+  // Pattern 2: "43.1234, -76.5678" (just coordinates)
+  const pattern2 = locationName.match(/^([-]?\d+\.?\d*),\s*([-]?\d+\.?\d*)$/);
+  if (pattern2) {
+    const lat = parseFloat(pattern2[1]);
+    const lng = parseFloat(pattern2[2]);
+    if (isValidCoordinate(lat, lng)) {
+      return { lat, lng };
+    }
+  }
+
+  // Pattern 3: Any coordinates in the string
+  const pattern3 = locationName.match(/([-]?\d{2,3}\.\d+),\s*([-]?\d{2,3}\.\d+)/);
+  if (pattern3) {
+    let lat = parseFloat(pattern3[1]);
+    let lng = parseFloat(pattern3[2]);
+    
+    // If lat is negative and large, it's probably the longitude (swap them)
+    if (lat < -70 && lng > 0) {
+      [lat, lng] = [lng, lat];
+    }
+    
+    if (isValidCoordinate(lat, lng)) {
+      return { lat, lng };
+    }
+  }
+
+  return null;
+}
+
+// Validate coordinates are in CNY region
+function isValidCoordinate(lat: number, lng: number): boolean {
+  // CNY is roughly: lat 42-45, lng -77 to -74
+  return lat >= 41 && lat <= 46 && lng >= -78 && lng <= -73;
+}
+
+// GET /api/reports
 export async function GET(request: NextRequest) {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createSupabase();
   const { searchParams } = new URL(request.url);
 
-  // Parse query params
   const minutes = parseInt(searchParams.get('minutes') || '60');
   const county = searchParams.get('county');
   const condition = searchParams.get('condition');
   const passability = searchParams.get('passability');
   const limit = parseInt(searchParams.get('limit') || '50');
-  const cursor = searchParams.get('cursor');
 
-  // Build query
+  const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+
   let query = supabase
     .from('reports')
     .select(`
@@ -23,97 +95,61 @@ export async function GET(request: NextRequest) {
       user:profiles!user_id(username, trust_score)
     `)
     .eq('status', 'active')
+    .gte('created_at', cutoff)
+    .or('expires_at.is.null,expires_at.gt.now()')
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  // Time filter
-  const since = new Date(Date.now() - minutes * 60 * 1000).toISOString();
-  query = query.gte('created_at', since);
-
-  // County filter
-  if (county && county !== 'all') {
-    query = query.eq('county', county);
-  }
-
-  // Condition filter
-  if (condition && condition !== 'all') {
-    query = query.eq('condition', condition);
-  }
-
-  // Passability filter
-  if (passability && passability !== 'all') {
-    query = query.eq('passability', passability);
-  }
-
-  // Cursor pagination
-  if (cursor) {
-    query = query.lt('id', cursor);
-  }
+  if (county) query = query.eq('county', county);
+  if (condition) query = query.eq('condition', condition);
+  if (passability) query = query.eq('passability', passability);
 
   const { data, error } = await query;
 
   if (error) {
+    console.error('Error fetching reports:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Transform PostGIS point to simple lat/lng
-  const reports = (data || []).map((report: any) => {
-    let location = null;
-    if (report.location) {
-      // PostGIS returns as GeoJSON or WKT depending on config
-      if (typeof report.location === 'object' && report.location.coordinates) {
-        location = {
-          lat: report.location.coordinates[1],
-          lng: report.location.coordinates[0],
-        };
-      }
-    }
-    return {
-      ...report,
-      location,
-    };
-  });
+  // Transform reports with parsed locations
+  const reports = (data || []).map((report: any) => ({
+    ...report,
+    location: parseLocation(report),
+  }));
 
-  return NextResponse.json({
-    reports,
-    next_cursor: reports.length === limit ? reports[reports.length - 1]?.id : null,
-  });
+  // Log for debugging
+  const withLocation = reports.filter((r: any) => r.location !== null);
+  console.log(`API: ${reports.length} reports, ${withLocation.length} with valid locations`);
+  if (reports.length > 0) {
+    console.log('Sample location_name:', reports[0].location_name);
+    console.log('Parsed location:', reports[0].location);
+  }
+
+  return NextResponse.json({ reports });
 }
 
-// POST /api/reports - Create a new report
+// POST schema
 const createReportSchema = z.object({
-  lat: z.number().min(-90).max(90),
-  lng: z.number().min(-180).max(180),
-  location_name: z.string().max(200).optional(),
+  lat: z.number(),
+  lng: z.number(),
+  location_name: z.string().optional(),
+  road_name: z.string().optional(),
   county: z.enum(['onondaga', 'oswego', 'madison', 'cayuga', 'oneida', 'cortland']),
-  road_name: z.string().max(100).optional(),
   condition: z.enum(['clear', 'wet', 'slush', 'snow', 'ice', 'whiteout']),
   passability: z.enum(['ok', 'slow', 'avoid']),
   notes: z.string().max(500).optional(),
-  photo_urls: z.array(z.string().url()).max(5).optional(),
+  photo_urls: z.array(z.string()).optional(),
 });
 
+// POST /api/reports
 export async function POST(request: NextRequest) {
-  const supabase = createServerSupabaseClient();
+  const supabase = await createSupabase();
 
-  // Check auth
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  // Check if user is banned
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('banned_at')
-    .eq('id', user.id)
-    .single();
-
-  if (profile?.banned_at) {
-    return NextResponse.json({ error: 'Account suspended' }, { status: 403 });
-  }
-
-  // Parse and validate body
   let body;
   try {
     body = await request.json();
@@ -126,59 +162,51 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: parsed.error.errors }, { status: 400 });
   }
 
-  const input = parsed.data;
+  const { lat, lng, location_name, road_name, county, condition, passability, notes, photo_urls } = parsed.data;
 
-  // Rate limiting check (simple: max 10 reports per hour)
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-  const { count } = await supabase
-    .from('reports')
-    .select('*', { count: 'exact', head: true })
-    .eq('user_id', user.id)
-    .gte('created_at', oneHourAgo);
-
-  if ((count || 0) >= 10) {
-    return NextResponse.json(
-      { error: 'Rate limit exceeded. Max 10 reports per hour.' },
-      { status: 429 }
-    );
+  // Store coordinates in location_name for easy parsing
+  // Format: "Road Name (lat, lng)" or just "lat, lng"
+  let finalLocationName: string;
+  if (road_name) {
+    finalLocationName = `${road_name} (${lat}, ${lng})`;
+  } else if (location_name) {
+    // Check if location_name already has coordinates
+    if (location_name.includes(String(lat))) {
+      finalLocationName = location_name;
+    } else {
+      finalLocationName = `${location_name} (${lat}, ${lng})`;
+    }
+  } else {
+    finalLocationName = `${lat}, ${lng}`;
   }
 
-  // Calculate expiration based on condition
-  const expirationHours: Record<string, number> = {
-    clear: 2,
-    wet: 3,
-    slush: 3,
-    snow: 4,
-    ice: 4,
-    whiteout: 2,
-  };
-  const hours = expirationHours[input.condition] || 4;
-  const expiresAt = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
-
-  // Insert report
   const { data, error } = await supabase
     .from('reports')
     .insert({
       user_id: user.id,
-      location: `SRID=4326;POINT(${input.lng} ${input.lat})`,
-      location_name: input.location_name,
-      county: input.county,
-      road_name: input.road_name,
-      condition: input.condition,
-      passability: input.passability,
-      notes: input.notes,
-      photo_urls: input.photo_urls || [],
-      expires_at: expiresAt,
+      location_name: finalLocationName,
+      road_name,
+      county,
+      condition,
+      passability,
+      notes,
+      photo_urls: photo_urls || [],
+      status: 'active',
+      expires_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
     })
     .select()
     .single();
 
   if (error) {
+    console.error('Error creating report:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Update user's report count
-  await supabase.rpc('increment_report_count', { user_id: user.id });
+  try {
+    await supabase.rpc('increment_report_count', { p_user_id: user.id });
+  } catch (e) {
+    console.error('Failed to increment report count:', e);
+  }
 
   return NextResponse.json(data, { status: 201 });
 }
