@@ -177,3 +177,46 @@ export function useUploadPhoto() {
     },
   });
 }
+
+// Fetch a single report by ID
+export function useReport(reportId: string) {
+  return useQuery({
+    queryKey: ['report', reportId],
+    queryFn: async () => {
+      const response = await fetch(`/api/reports/${reportId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch report');
+      }
+
+      return response.json() as Promise<Report>;
+    },
+    enabled: !!reportId,
+  });
+}
+
+// Add a comment to a report
+export function useAddComment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ reportId, content }: { reportId: string; content: string }) => {
+      const response = await fetch(`/api/reports/${reportId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to add comment');
+      }
+
+      return response.json();
+    },
+    onSuccess: (_, { reportId }) => {
+      queryClient.invalidateQueries({ queryKey: ['report', reportId] });
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+    },
+  });
+}
