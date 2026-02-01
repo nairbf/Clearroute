@@ -1,0 +1,37 @@
+{
+  "name": "CNY Plow Report",
+  "short_name": "CNY Plow",
+  "description": "Community road conditions for Central New York",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#1e40af",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["weather", "navigation", "social"],
+  "shortcuts": [
+    {
+      "name": "New Report",
+      "url": "/?action=post",
+      "description": "Submit a new road condition report"
+    },
+    {
+      "name": "View Map",
+      "url": "/?view=map",
+      "description": "View the road conditions map"
+    }
+  ]
+}

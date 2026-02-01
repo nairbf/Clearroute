@@ -1,0 +1,38 @@
+import { createServerSupabaseClient } from '@/lib/supabase/server';
+import { NextResponse } from 'next/server';
+
+export async function GET(request: Request) {
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get('code');
+
+  if (code) {
+    const supabase = createServerSupabaseClient();
+    
+    // Exchange code for session
+    const { data: { user }, error } = await supabase.auth.exchangeCodeForSession(code);
+    
+    if (!error && user) {
+      // Check if profile exists
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', user.id)
+        .single();
+      
+      // Create profile if doesn't exist (for OAuth users)
+      if (!profile) {
+        const username = user.email?.split('@')[0] || `user_${user.id.slice(0, 8)}`;
+        await supabase
+          .from('profiles')
+          .insert({
+            id: user.id,
+            username,
+            display_name: user.user_metadata?.full_name || null,
+          });
+      }
+    }
+  }
+
+  // Redirect to home
+  return NextResponse.redirect(new URL('/', requestUrl.origin));
+}

@@ -1,0 +1,196 @@
+/* Import MapLibre styles */
+@import 'maplibre-gl/dist/maplibre-gl.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+
+:root {
+  --font-inter: 'Inter', system-ui, sans-serif;
+  --font-outfit: 'Outfit', system-ui, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Hide scrollbar on mobile */
+@media (max-width: 640px) {
+  ::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Map container */
+.map-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* Marker styles */
+.report-marker {
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.report-marker:hover {
+  transform: scale(1.1);
+}
+
+/* Cluster marker */
+.cluster-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #1e40af;
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+.cluster-marker:hover {
+  transform: scale(1.1);
+}
+
+/* Large touch targets for mobile */
+@layer components {
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px] flex items-center justify-center;
+  }
+
+  .btn {
+    @apply touch-target px-4 py-3 rounded-lg font-medium transition-colors;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-primary text-white hover:bg-blue-900 active:bg-blue-950;
+  }
+
+  .btn-secondary {
+    @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200 active:bg-slate-300;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-500 text-white hover:bg-red-600 active:bg-red-700;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-slate-600 hover:bg-slate-100 active:bg-slate-200;
+  }
+
+  .input {
+    @apply w-full px-4 py-3 rounded-lg border border-slate-300 focus:border-brand-primary focus:ring-2 focus:ring-brand-primary/20 outline-none transition-colors;
+  }
+
+  .card {
+    @apply bg-white rounded-xl shadow-sm border border-slate-200;
+  }
+
+  /* Condition badges */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-semibold uppercase tracking-wide;
+  }
+
+  .badge-clear {
+    @apply badge bg-green-100 text-green-800;
+  }
+
+  .badge-wet {
+    @apply badge bg-blue-100 text-blue-800;
+  }
+
+  .badge-slush {
+    @apply badge bg-amber-100 text-amber-800;
+  }
+
+  .badge-snow {
+    @apply badge bg-orange-100 text-orange-800;
+  }
+
+  .badge-ice {
+    @apply badge bg-red-100 text-red-800;
+  }
+
+  .badge-whiteout {
+    @apply badge bg-violet-100 text-violet-800;
+  }
+
+  /* Passability badges */
+  .badge-ok {
+    @apply badge bg-green-100 text-green-800;
+  }
+
+  .badge-slow {
+    @apply badge bg-amber-100 text-amber-800;
+  }
+
+  .badge-avoid {
+    @apply badge bg-red-100 text-red-800;
+  }
+}
+
+/* Skeleton loading animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Safe area insets for PWA */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0);
+}
+
+/* Pull to refresh indicator */
+.ptr-element {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-100%);
+  transition: transform 0.2s ease;
+}
+
+.ptr-element.pulling {
+  transform: translateY(0);
+}
