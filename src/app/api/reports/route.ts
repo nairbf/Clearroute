@@ -85,6 +85,7 @@ export async function GET(request: NextRequest) {
   const condition = searchParams.get('condition');
   const passability = searchParams.get('passability');
   const limit = parseInt(searchParams.get('limit') || '50');
+  const includeExpired = searchParams.get('includeExpired') === 'true';
 
   const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString();
 
@@ -94,11 +95,16 @@ export async function GET(request: NextRequest) {
       *,
       user:profiles!user_id(username, trust_score)
     `)
-    .eq('status', 'active')
     .gte('created_at', cutoff)
-    .or('expires_at.is.null,expires_at.gt.now()')
     .order('created_at', { ascending: false })
     .limit(limit);
+
+  // Filter by status - include expired if requested
+  if (includeExpired) {
+    query = query.in('status', ['active', 'expired']);
+  } else {
+    query = query.eq('status', 'active');
+  }
 
   if (county) query = query.eq('county', county);
   if (condition) query = query.eq('condition', condition);
@@ -116,14 +122,6 @@ export async function GET(request: NextRequest) {
     ...report,
     location: parseLocation(report),
   }));
-
-  // Log for debugging
-  const withLocation = reports.filter((r: any) => r.location !== null);
-  console.log(`API: ${reports.length} reports, ${withLocation.length} with valid locations`);
-  if (reports.length > 0) {
-    console.log('Sample location_name:', reports[0].location_name);
-    console.log('Parsed location:', reports[0].location);
-  }
 
   return NextResponse.json({ reports });
 }

@@ -1,24 +1,44 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import { Header } from '@/components/Header';
 import { MainView } from '@/components/MainView';
 import { BottomNav } from '@/components/BottomNav';
-import { Disclaimer } from '@/components/Disclaimer';
+import { LocationPrompt } from '@/components/LocationPrompt';
+import { useAppStore } from '@/lib/store';
 
 export default function Home() {
+  const { hasSetLocation } = useAppStore();
+  const [showLocationPrompt, setShowLocationPrompt] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    if (!hasSetLocation) {
+      setShowLocationPrompt(true);
+    }
+  }, [hasSetLocation]);
+
+  // Prevent hydration mismatch
+  if (!mounted) {
+    return null;
+  }
+
+  if (showLocationPrompt && !hasSetLocation) {
+    return (
+      <LocationPrompt 
+        onLocationSet={() => setShowLocationPrompt(false)} 
+      />
+    );
+  }
+
   return (
-    <main className="h-screen flex flex-col bg-slate-50">
-      {/* Header */}
+    <div className="h-screen flex flex-col bg-slate-100">
       <Header />
-      
-      {/* Disclaimer banner */}
-      <Disclaimer />
-      
-      {/* Main content (Map or Feed) */}
-      <div className="flex-1 relative overflow-hidden">
+      <main className="flex-1 overflow-hidden">
         <MainView />
-      </div>
-      
-      {/* Bottom navigation */}
+      </main>
       <BottomNav />
-    </main>
+    </div>
   );
 }

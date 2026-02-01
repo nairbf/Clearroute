@@ -178,20 +178,30 @@ export function useUploadPhoto() {
   });
 }
 
-// Fetch a single report by ID
-export function useReport(reportId: string) {
+export function useReports(params: ReportsQuery & { includeExpired?: boolean } = {}) {
   return useQuery({
-    queryKey: ['report', reportId],
+    queryKey: ['reports', params],
     queryFn: async () => {
-      const response = await fetch(`/api/reports/${reportId}`);
+      const searchParams = new URLSearchParams();
+      
+      if (params.minutes) searchParams.set('minutes', params.minutes.toString());
+      if (params.county) searchParams.set('county', params.county);
+      if (params.condition) searchParams.set('condition', params.condition);
+      if (params.passability) searchParams.set('passability', params.passability);
+      if (params.limit) searchParams.set('limit', params.limit.toString());
+      if (params.includeExpired) searchParams.set('includeExpired', 'true');
+
+      const response = await fetch(`/api/reports?${searchParams.toString()}`);
       
       if (!response.ok) {
-        throw new Error('Failed to fetch report');
+        throw new Error('Failed to fetch reports');
       }
 
-      return response.json() as Promise<Report>;
+      const data = await response.json();
+      return data.reports as Report[];
     },
-    enabled: !!reportId,
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
   });
 }
 
