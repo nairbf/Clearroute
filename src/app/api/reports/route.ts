@@ -26,42 +26,26 @@ async function createSupabase() {
   );
 }
 
-// Helper to parse location from location_name
 function parseLocation(report: any): { lat: number; lng: number } | null {
   const locationName = report.location_name || '';
   
-  // Pattern 1: "Road Name (43.1234, -76.5678)" or "Road Name (near 43.1234, -76.5678)"
-  const pattern1 = locationName.match(/\((?:near\s*)?([-]?\d+\.?\d*),\s*([-]?\d+\.?\d*)\)/);
-  if (pattern1) {
-    const lat = parseFloat(pattern1[1]);
-    const lng = parseFloat(pattern1[2]);
-    if (isValidCoordinate(lat, lng)) {
+  const pattern = locationName.match(/\((?:near\s*)?([-]?\d+\.?\d*),\s*([-]?\d+\.?\d*)\)/);
+  if (pattern) {
+    const lat = parseFloat(pattern[1]);
+    const lng = parseFloat(pattern[2]);
+    if (lat >= 41 && lat <= 46 && lng >= -78 && lng <= -73) {
       return { lat, lng };
     }
   }
 
-  // Pattern 2: "43.1234, -76.5678" (just coordinates)
-  const pattern2 = locationName.match(/^([-]?\d+\.?\d*),\s*([-]?\d+\.?\d*)$/);
+  const pattern2 = locationName.match(/([-]?\d{2,3}\.\d+),\s*([-]?\d{2,3}\.\d+)/);
   if (pattern2) {
-    const lat = parseFloat(pattern2[1]);
-    const lng = parseFloat(pattern2[2]);
-    if (isValidCoordinate(lat, lng)) {
-      return { lat, lng };
-    }
-  }
-
-  // Pattern 3: Any coordinates in the string
-  const pattern3 = locationName.match(/([-]?\d{2,3}\.\d+),\s*([-]?\d{2,3}\.\d+)/);
-  if (pattern3) {
-    let lat = parseFloat(pattern3[1]);
-    let lng = parseFloat(pattern3[2]);
-    
-    // If lat is negative and large, it's probably the longitude (swap them)
+    let lat = parseFloat(pattern2[1]);
+    let lng = parseFloat(pattern2[2]);
     if (lat < -70 && lng > 0) {
       [lat, lng] = [lng, lat];
     }
-    
-    if (isValidCoordinate(lat, lng)) {
+    if (lat >= 41 && lat <= 46 && lng >= -78 && lng <= -73) {
       return { lat, lng };
     }
   }
@@ -69,25 +53,21 @@ function parseLocation(report: any): { lat: number; lng: number } | null {
   return null;
 }
 
-// Validate coordinates are in CNY region
-function isValidCoordinate(lat: number, lng: number): boolean {
-  // CNY is roughly: lat 42-45, lng -77 to -74
-  return lat >= 41 && lat <= 46 && lng >= -78 && lng <= -73;
-}
-
 // GET /api/reports
 export async function GET(request: NextRequest) {
   const supabase = await createSupabase();
   const { searchParams } = new URL(request.url);
 
-  const minutes = parseInt(searchParams.get('minutes') || '60');
+  const section = searchParams.get('section') || 'recent'; // 'recent' or 'older'
   const county = searchParams.get('county');
   const condition = searchParams.get('condition');
   const passability = searchParams.get('passability');
   const limit = parseInt(searchParams.get('limit') || '50');
-  const includeExpired = searchParams.get('includeExpired') === 'true';
 
-  const cutoff = new Date(Date.now() - minutes * 60 * 1000).toISOString();
+  // Recent = last 12 hours, Older = 12-48 hours ago
+  const now = Date.now();
+  const twelveHoursAgo = new Date(now - 12 * 60 * 60 * 1000).toISOString();
+  const fortyEightHoursAgo = new Date(now - 48 * 60 * 60 * 1000).toISOString();
 
   let query = supabase
     .from('reports')
@@ -95,15 +75,19 @@ export async function GET(request: NextRequest) {
       *,
       user:profiles!user_id(username, trust_score)
     `)
-    .gte('created_at', cutoff)
     .order('created_at', { ascending: false })
     .limit(limit);
 
-  // Filter by status - include expired if requested
-  if (includeExpired) {
-    query = query.in('status', ['active', 'expired']);
+  if (section === 'recent') {
+    // Recent: created in last 12 hours, status = active
+    query = query
+      .gte('created_at', twelveHoursAgo)
+      .eq('status', 'active');
   } else {
-    query = query.eq('status', 'active');
+    // Older: created 12-48 hours ago, any status
+    query = query
+      .lt('created_at', twelveHoursAgo)
+      .gte('created_at', fortyEightHoursAgo);
   }
 
   if (county) query = query.eq('county', county);
@@ -117,11 +101,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Transform reports with parsed locations
   const reports = (data || []).map((report: any) => ({
     ...report,
     location: parseLocation(report),
   }));
+
+  console.log(`API: ${section} - ${reports.length} reports`);
 
   return NextResponse.json({ reports });
 }
@@ -162,13 +147,10 @@ export async function POST(request: NextRequest) {
 
   const { lat, lng, location_name, road_name, county, condition, passability, notes, photo_urls } = parsed.data;
 
-  // Store coordinates in location_name for easy parsing
-  // Format: "Road Name (lat, lng)" or just "lat, lng"
   let finalLocationName: string;
   if (road_name) {
     finalLocationName = `${road_name} (${lat}, ${lng})`;
   } else if (location_name) {
-    // Check if location_name already has coordinates
     if (location_name.includes(String(lat))) {
       finalLocationName = location_name;
     } else {
@@ -190,7 +172,7 @@ export async function POST(request: NextRequest) {
       notes,
       photo_urls: photo_urls || [],
       status: 'active',
-      expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+      expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(), // 12 hours
     })
     .select()
     .single();
@@ -198,12 +180,6 @@ export async function POST(request: NextRequest) {
   if (error) {
     console.error('Error creating report:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  try {
-    await supabase.rpc('increment_report_count', { p_user_id: user.id });
-  } catch (e) {
-    console.error('Failed to increment report count:', e);
   }
 
   return NextResponse.json(data, { status: 201 });

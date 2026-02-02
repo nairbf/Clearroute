@@ -36,6 +36,5 @@ export async function GET(request: Request) {
     }
   }
 
-  // Return to homepage on error
   return NextResponse.redirect(`${origin}/?error=auth`);
 }

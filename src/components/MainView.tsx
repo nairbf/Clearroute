@@ -14,7 +14,7 @@ import { useAppStore } from '@/lib/store';
 import { useReports } from '@/hooks/useReports';
 import { ReportCard } from './ReportCard';
 import { getConditionColor } from '@/lib/utils';
-import { Maximize2, Minimize2, Clock, History } from 'lucide-react';
+import { Maximize2, Minimize2, MapPin, Clock, History } from 'lucide-react';
 import type { Report } from '@/types';
 
 const MAP_STYLE = 'https://tiles.stadiamaps.com/styles/alidade_smooth.json';
@@ -25,9 +25,8 @@ const CNY_BOUNDS: [[number, number], [number, number]] = [
   [-74.5, 44.5],
 ];
 
-// Calculate distance between two points in miles
 function getDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 3959; // Earth's radius in miles
+  const R = 3959;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLon = (lon2 - lon1) * Math.PI / 180;
   const a = 
@@ -40,25 +39,39 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number): nu
 
 export function MainView() {
   const mapRef = useRef<MapRef>(null);
-  const { filters, selectedReport, setSelectedReport, userLocation, showExpired, setShowExpired } = useAppStore();
+  const { filters, selectedReport, setSelectedReport, userLocation } = useAppStore();
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [activeSection, setActiveSection] = useState<'recent' | 'older'>('recent');
+  
+  const initialLat = userLocation?.lat ?? CNY_CENTER.lat;
+  const initialLng = userLocation?.lng ?? CNY_CENTER.lng;
   
   const [viewState, setViewState] = useState({
-    latitude: userLocation?.lat || CNY_CENTER.lat,
-    longitude: userLocation?.lng || CNY_CENTER.lng,
+    latitude: initialLat,
+    longitude: initialLng,
     zoom: userLocation ? 11 : 9,
   });
   const [bounds, setBounds] = useState<[number, number, number, number]>([-77.5, 42.0, -74.5, 44.5]);
 
-  const { data: reports = [], isLoading } = useReports({
-    minutes: showExpired ? 1440 : filters.minutes, // 24 hours for expired
+  // Fetch both recent and older reports
+  const { data: recentReports = [], isLoading: loadingRecent } = useReports({
+    section: 'recent',
     county: filters.county !== 'all' ? filters.county : undefined,
     condition: filters.condition !== 'all' ? filters.condition : undefined,
     passability: filters.passability !== 'all' ? filters.passability : undefined,
-    includeExpired: showExpired,
   });
 
-  // Filter reports with valid locations and sort by distance
+  const { data: olderReports = [], isLoading: loadingOlder } = useReports({
+    section: 'older',
+    county: filters.county !== 'all' ? filters.county : undefined,
+    condition: filters.condition !== 'all' ? filters.condition : undefined,
+    passability: filters.passability !== 'all' ? filters.passability : undefined,
+  });
+
+  const isLoading = activeSection === 'recent' ? loadingRecent : loadingOlder;
+  const reports = activeSection === 'recent' ? recentReports : olderReports;
+
+  // Filter and sort reports by distance
   const sortedReports = useMemo(() => {
     const validReports = reports.filter(r => 
       r.location && 
@@ -85,9 +98,19 @@ export function MainView() {
     return validReports;
   }, [reports, userLocation]);
 
-  // Convert to GeoJSON points
+  // Use recent reports for map markers (always show recent on map)
+  const mapReports = useMemo(() => {
+    return recentReports.filter(r => 
+      r.location && 
+      typeof r.location.lat === 'number' && 
+      typeof r.location.lng === 'number' &&
+      r.location.lat !== 0 &&
+      r.location.lng !== 0
+    );
+  }, [recentReports]);
+
   const points = useMemo(() => 
-    sortedReports.map((report) => ({
+    mapReports.map((report) => ({
       type: 'Feature' as const,
       properties: { 
         cluster: false,
@@ -98,9 +121,8 @@ export function MainView() {
         type: 'Point' as const,
         coordinates: [report.location!.lng, report.location!.lat],
       },
-    })), [sortedReports]);
+    })), [mapReports]);
 
-  // Clustering
   const { clusters, supercluster } = useSupercluster({
     points,
     bounds,
@@ -133,6 +155,7 @@ export function MainView() {
 
   const handleMarkerClick = (report: Report) => {
     setSelectedReport(report);
+    setActiveSection('recent'); // Switch to recent when clicking map marker
     const element = document.getElementById(`report-${report.id}`);
     if (element) {
       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -148,7 +171,7 @@ export function MainView() {
   return (
     <div className="h-full flex flex-col bg-slate-100">
       {/* Map Section */}
-      <div className={`relative transition-all duration-300 ${mapExpanded ? 'h-[60vh]' : 'h-48'}`}>
+      <div className={`relative transition-all duration-300 flex-shrink-0 ${mapExpanded ? 'h-[60vh]' : 'h-48'}`}>
         <Map
           ref={mapRef}
           {...viewState}
@@ -164,7 +187,6 @@ export function MainView() {
           <NavigationControl position="top-right" showCompass={false} />
           <GeolocateControl position="top-right" trackUserLocation />
 
-          {/* User location marker */}
           {userLocation && (
             <Marker
               latitude={userLocation.lat}
@@ -175,7 +197,6 @@ export function MainView() {
             </Marker>
           )}
 
-          {/* Clusters and markers */}
           {clusters.map((cluster) => {
             const [lng, lat] = cluster.geometry.coordinates;
             const { cluster: isCluster, point_count: pointCount } = cluster.properties;
@@ -226,7 +247,6 @@ export function MainView() {
             );
           })}
 
-          {/* Popup */}
           {selectedReport && selectedReport.location && mapExpanded && (
             <Popup
               latitude={selectedReport.location.lat}
@@ -243,87 +263,65 @@ export function MainView() {
           )}
         </Map>
 
-        {/* Map overlay - report count */}
         <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-sm rounded-lg shadow px-2 py-1.5 text-xs">
-          <span className="font-semibold">{sortedReports.length}</span>
-          <span className="text-slate-500"> reports</span>
+          <span className="font-semibold">{mapReports.length}</span>
+          <span className="text-slate-500"> recent reports</span>
         </div>
 
-        {/* Expand/collapse button */}
         <button
           onClick={() => setMapExpanded(!mapExpanded)}
           className="absolute bottom-2 right-2 bg-white rounded-lg shadow px-3 py-1.5 text-xs font-medium text-slate-700 flex items-center gap-1 hover:bg-slate-50"
         >
-          {mapExpanded ? (
-            <>
-              <Minimize2 size={14} />
-              Collapse
-            </>
-          ) : (
-            <>
-              <Maximize2 size={14} />
-              Expand
-            </>
-          )}
+          {mapExpanded ? <><Minimize2 size={14} /> Collapse</> : <><Maximize2 size={14} /> Expand</>}
         </button>
 
-        {/* Legend - only show when expanded */}
         {mapExpanded && (
           <div className="absolute bottom-2 left-2 bg-white/95 backdrop-blur-sm rounded-lg shadow p-2 text-xs">
             <div className="grid grid-cols-3 gap-x-3 gap-y-1">
-              <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                <span>Clear</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                <span>Wet</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                <span>Slush</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-full bg-orange-500" />
-                <span>Snow</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                <span>Ice</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-full bg-violet-500" />
-                <span>Whiteout</span>
-              </div>
+              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-green-500" /><span>Clear</span></div>
+              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-blue-500" /><span>Wet</span></div>
+              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-amber-500" /><span>Slush</span></div>
+              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-orange-500" /><span>Snow</span></div>
+              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-red-500" /><span>Ice</span></div>
+              <div className="flex items-center gap-1"><div className="w-2.5 h-2.5 rounded-full bg-violet-500" /><span>Whiteout</span></div>
             </div>
           </div>
         )}
       </div>
 
       {/* Feed Section */}
-      <div className="flex-1 overflow-y-auto">
-        {/* Filter summary with expired toggle */}
-        <div className="sticky top-0 z-10 bg-slate-100 px-4 py-2 border-b border-slate-200">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-600">
-              <span className="font-semibold">{sortedReports.length}</span> reports
-              {filters.county !== 'all' && (
-                <> in <span className="font-semibold capitalize">{filters.county}</span> County</>
-              )}
-              {userLocation && <>, sorted by distance</>}
-            </p>
-            
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {/* Section tabs */}
+        <div className="sticky top-0 z-10 bg-white border-b border-slate-200">
+          <div className="flex">
             <button
-              onClick={() => setShowExpired(!showExpired)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
-                showExpired 
-                  ? 'bg-amber-100 text-amber-700' 
-                  : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+              onClick={() => setActiveSection('recent')}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeSection === 'recent'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
               }`}
             >
-              <History size={14} />
-              {showExpired ? 'Showing Older' : 'Show Older'}
+              <Clock size={16} />
+              Recent ({recentReports.length})
             </button>
+            <button
+              onClick={() => setActiveSection('older')}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium border-b-2 transition-colors ${
+                activeSection === 'older'
+                  ? 'border-blue-600 text-blue-600'
+                  : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              <History size={16} />
+              Older ({olderReports.length})
+            </button>
+          </div>
+          <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500">
+            {activeSection === 'recent' 
+              ? 'Reports from the last 12 hours' 
+              : 'Reports from 12-48 hours ago'
+            }
           </div>
         </div>
 
@@ -350,11 +348,13 @@ export function MainView() {
           <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
             <div className="text-6xl mb-4">🛣️</div>
             <h3 className="text-lg font-semibold text-slate-900 mb-2">
-              No reports yet
+              {activeSection === 'recent' ? 'No recent reports' : 'No older reports'}
             </h3>
             <p className="text-slate-600 max-w-xs">
-              Be the first to report road conditions in your area! 
-              Tap the + button below to add a report.
+              {activeSection === 'recent' 
+                ? 'Be the first to report road conditions! Tap the + button below.'
+                : 'No reports from the past 12-48 hours.'
+              }
             </p>
           </div>
         )}
@@ -370,7 +370,6 @@ export function MainView() {
                   selectedReport?.id === report.id ? 'ring-2 ring-blue-500 rounded-xl' : ''
                 }`}
               >
-                {/* Distance badge */}
                 {report.distance !== undefined && (
                   <div className="flex items-center gap-1 text-xs text-slate-500 mb-1 ml-1">
                     <MapPin size={12} />
@@ -380,14 +379,6 @@ export function MainView() {
                 <ReportCard report={report} />
               </div>
             ))}
-            
-            {/* End of list */}
-            <div className="text-center py-4 text-sm text-slate-500">
-              {showExpired 
-                ? `Showing ${sortedReports.length} reports from the last 24 hours`
-                : `You've seen all ${sortedReports.length} recent reports`
-              }
-            </div>
           </div>
         )}
       </div>

@@ -4,14 +4,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
 import type { Report, ReportsQuery, CreateReportInput } from '@/types';
 
-// Fetch reports from API (not directly from Supabase)
-export function useReports(params: ReportsQuery = {}) {
+// Fetch reports - section can be 'recent' or 'older'
+export function useReports(params: ReportsQuery & { section?: 'recent' | 'older' } = {}) {
   return useQuery({
     queryKey: ['reports', params],
     queryFn: async () => {
       const searchParams = new URLSearchParams();
       
-      if (params.minutes) searchParams.set('minutes', params.minutes.toString());
+      if (params.section) searchParams.set('section', params.section);
       if (params.county) searchParams.set('county', params.county);
       if (params.condition) searchParams.set('condition', params.condition);
       if (params.passability) searchParams.set('passability', params.passability);
@@ -28,6 +28,23 @@ export function useReports(params: ReportsQuery = {}) {
     },
     staleTime: 30 * 1000,
     refetchInterval: 30 * 1000,
+  });
+}
+
+// Fetch a single report by ID
+export function useReport(reportId: string) {
+  return useQuery({
+    queryKey: ['report', reportId],
+    queryFn: async () => {
+      const response = await fetch(`/api/reports/${reportId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch report');
+      }
+
+      return response.json() as Promise<Report>;
+    },
+    enabled: !!reportId,
   });
 }
 
@@ -51,6 +68,32 @@ export function useCreateReport() {
       return response.json();
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reports'] });
+    },
+  });
+}
+
+// Add a comment to a report
+export function useAddComment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({ reportId, content }: { reportId: string; content: string }) => {
+      const response = await fetch(`/api/reports/${reportId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to add comment');
+      }
+
+      return response.json();
+    },
+    onSuccess: (_, { reportId }) => {
+      queryClient.invalidateQueries({ queryKey: ['report', reportId] });
       queryClient.invalidateQueries({ queryKey: ['reports'] });
     },
   });
@@ -174,59 +217,6 @@ export function useUploadPhoto() {
         .getPublicUrl(fileName);
 
       return { url: publicUrl };
-    },
-  });
-}
-
-export function useReports(params: ReportsQuery & { includeExpired?: boolean } = {}) {
-  return useQuery({
-    queryKey: ['reports', params],
-    queryFn: async () => {
-      const searchParams = new URLSearchParams();
-      
-      if (params.minutes) searchParams.set('minutes', params.minutes.toString());
-      if (params.county) searchParams.set('county', params.county);
-      if (params.condition) searchParams.set('condition', params.condition);
-      if (params.passability) searchParams.set('passability', params.passability);
-      if (params.limit) searchParams.set('limit', params.limit.toString());
-      if (params.includeExpired) searchParams.set('includeExpired', 'true');
-
-      const response = await fetch(`/api/reports?${searchParams.toString()}`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch reports');
-      }
-
-      const data = await response.json();
-      return data.reports as Report[];
-    },
-    staleTime: 30 * 1000,
-    refetchInterval: 30 * 1000,
-  });
-}
-
-// Add a comment to a report
-export function useAddComment() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({ reportId, content }: { reportId: string; content: string }) => {
-      const response = await fetch(`/api/reports/${reportId}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to add comment');
-      }
-
-      return response.json();
-    },
-    onSuccess: (_, { reportId }) => {
-      queryClient.invalidateQueries({ queryKey: ['report', reportId] });
-      queryClient.invalidateQueries({ queryKey: ['reports'] });
     },
   });
 }
