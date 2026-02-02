@@ -32,7 +32,7 @@ export function SearchResults({ query, open, onClose, onSelectReport }: SearchRe
       const response = await fetch(`/api/reports/search?q=${encodeURIComponent(searchQuery)}`);
       if (response.ok) {
         const data = await response.json();
-        setResults(data.reports || []); bv
+        setResults(data.reports || []);
       }
     } catch (error) {
       console.error('Search error:', error);

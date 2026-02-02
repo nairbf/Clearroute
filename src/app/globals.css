@@ -225,8 +225,9 @@
 
 .animate-slide-up {
   animation: slide-up 0.3s ease-out;
-  
-  /* User location pulse */
+}
+
+/* User location pulse */
 .pulse-ring {
   position: relative;
 }
