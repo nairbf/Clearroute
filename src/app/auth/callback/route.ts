@@ -1,11 +1,14 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
-export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
-  const code = searchParams.get('code');
-  const next = searchParams.get('next') ?? '/';
+export async function GET(request: NextRequest) {
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get('code');
+  const origin = requestUrl.origin;
+
+  console.log('Auth callback received, code:', code ? 'present' : 'missing');
 
   if (code) {
     const cookieStore = await cookies();
@@ -19,24 +22,52 @@ export async function GET(request: Request) {
             return cookieStore.getAll();
           },
           setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {}
+            cookiesToSet.forEach(({ name, value, options }) => {
+              cookieStore.set(name, value, options);
+            });
           },
         },
       }
     );
 
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     
-    if (!error) {
-      return NextResponse.redirect(`${origin}${next}`);
+    console.log('Exchange result:', { 
+      success: !!data.session, 
+      userId: data.session?.user?.id,
+      error: error?.message 
+    });
+
+    if (error) {
+      console.error('Auth error:', error);
+      return NextResponse.redirect(`${origin}/?error=${encodeURIComponent(error.message)}`);
     }
-    
-    console.error('Auth callback error:', error);
+
+    if (data.session) {
+      // Check if profile exists, create if not
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', data.session.user.id)
+        .single();
+
+      if (!profile) {
+        // Create profile for new user
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert({
+            id: data.session.user.id,
+            username: data.session.user.email?.split('@')[0] || `user_${Date.now()}`,
+          });
+        
+        if (profileError) {
+          console.error('Profile creation error:', profileError);
+        }
+      }
+
+      return NextResponse.redirect(origin);
+    }
   }
 
-  return NextResponse.redirect(`${origin}/?error=auth`);
+  return NextResponse.redirect(`${origin}/?error=no_code`);
 }

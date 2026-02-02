@@ -41,7 +41,7 @@ export function MainView() {
   const mapRef = useRef<MapRef>(null);
   const { filters, selectedReport, setSelectedReport, userLocation } = useAppStore();
   const [mapExpanded, setMapExpanded] = useState(false);
-  const [activeSection, setActiveSection] = useState<'recent' | 'older'>('recent');
+  const [activeTab, setActiveTab] = useState<'recent' | 'older'>('recent');
   
   const initialLat = userLocation?.lat ?? CNY_CENTER.lat;
   const initialLng = userLocation?.lng ?? CNY_CENTER.lng;
@@ -53,7 +53,7 @@ export function MainView() {
   });
   const [bounds, setBounds] = useState<[number, number, number, number]>([-77.5, 42.0, -74.5, 44.5]);
 
-  // Fetch both recent and older reports
+  // Fetch recent reports (last 12 hours)
   const { data: recentReports = [], isLoading: loadingRecent } = useReports({
     section: 'recent',
     county: filters.county !== 'all' ? filters.county : undefined,
@@ -61,6 +61,7 @@ export function MainView() {
     passability: filters.passability !== 'all' ? filters.passability : undefined,
   });
 
+  // Fetch older reports (12-48 hours ago)
   const { data: olderReports = [], isLoading: loadingOlder } = useReports({
     section: 'older',
     county: filters.county !== 'all' ? filters.county : undefined,
@@ -68,12 +69,12 @@ export function MainView() {
     passability: filters.passability !== 'all' ? filters.passability : undefined,
   });
 
-  const isLoading = activeSection === 'recent' ? loadingRecent : loadingOlder;
-  const reports = activeSection === 'recent' ? recentReports : olderReports;
+  const currentReports = activeTab === 'recent' ? recentReports : olderReports;
+  const isLoading = activeTab === 'recent' ? loadingRecent : loadingOlder;
 
-  // Filter and sort reports by distance
+  // Sort by distance if user location available
   const sortedReports = useMemo(() => {
-    const validReports = reports.filter(r => 
+    const validReports = currentReports.filter(r => 
       r.location && 
       typeof r.location.lat === 'number' && 
       typeof r.location.lng === 'number' &&
@@ -96,9 +97,9 @@ export function MainView() {
     }
 
     return validReports;
-  }, [reports, userLocation]);
+  }, [currentReports, userLocation]);
 
-  // Use recent reports for map markers (always show recent on map)
+  // Map always shows recent reports
   const mapReports = useMemo(() => {
     return recentReports.filter(r => 
       r.location && 
@@ -155,11 +156,13 @@ export function MainView() {
 
   const handleMarkerClick = (report: Report) => {
     setSelectedReport(report);
-    setActiveSection('recent'); // Switch to recent when clicking map marker
-    const element = document.getElementById(`report-${report.id}`);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    setActiveTab('recent');
+    setTimeout(() => {
+      const element = document.getElementById(`report-${report.id}`);
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 100);
   };
 
   const formatDistance = (miles: number): string => {
@@ -188,11 +191,7 @@ export function MainView() {
           <GeolocateControl position="top-right" trackUserLocation />
 
           {userLocation && (
-            <Marker
-              latitude={userLocation.lat}
-              longitude={userLocation.lng}
-              anchor="center"
-            >
+            <Marker latitude={userLocation.lat} longitude={userLocation.lng} anchor="center">
               <div className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg pulse-ring" />
             </Marker>
           )}
@@ -204,12 +203,7 @@ export function MainView() {
             if (isCluster) {
               const size = Math.min(45, Math.max(28, 28 + (pointCount / points.length) * 25));
               return (
-                <Marker
-                  key={`cluster-${cluster.id}`}
-                  latitude={lat}
-                  longitude={lng}
-                  anchor="center"
-                >
+                <Marker key={`cluster-${cluster.id}`} latitude={lat} longitude={lng} anchor="center">
                   <div
                     onClick={() => handleClusterClick(cluster.id as number, lat, lng)}
                     className="rounded-full border-2 border-white shadow-lg flex items-center justify-center cursor-pointer hover:scale-110 transition-transform bg-blue-600"
@@ -265,7 +259,7 @@ export function MainView() {
 
         <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-sm rounded-lg shadow px-2 py-1.5 text-xs">
           <span className="font-semibold">{mapReports.length}</span>
-          <span className="text-slate-500"> recent reports</span>
+          <span className="text-slate-500"> reports on map</span>
         </div>
 
         <button
@@ -289,98 +283,107 @@ export function MainView() {
         )}
       </div>
 
-      {/* Feed Section */}
-      <div className="flex-1 overflow-y-auto min-h-0">
-        {/* Section tabs */}
-        <div className="sticky top-0 z-10 bg-white border-b border-slate-200">
-          <div className="flex">
-            <button
-              onClick={() => setActiveSection('recent')}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeSection === 'recent'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <Clock size={16} />
-              Recent ({recentReports.length})
-            </button>
-            <button
-              onClick={() => setActiveSection('older')}
-              className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium border-b-2 transition-colors ${
-                activeSection === 'older'
-                  ? 'border-blue-600 text-blue-600'
-                  : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
-            >
-              <History size={16} />
-              Older ({olderReports.length})
-            </button>
-          </div>
-          <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500">
-            {activeSection === 'recent' 
-              ? 'Reports from the last 12 hours' 
-              : 'Reports from 12-48 hours ago'
-            }
-          </div>
+      {/* Feed Section with Tabs */}
+      <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        {/* Tab buttons */}
+        <div className="flex border-b border-slate-200 bg-white flex-shrink-0">
+          <button
+            onClick={() => setActiveTab('recent')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors border-b-2 ${
+              activeTab === 'recent'
+                ? 'border-blue-600 text-blue-600 bg-blue-50/50'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <Clock size={16} />
+            Recent
+            <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full text-xs">
+              {recentReports.length}
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('older')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors border-b-2 ${
+              activeTab === 'older'
+                ? 'border-blue-600 text-blue-600 bg-blue-50/50'
+                : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'
+            }`}
+          >
+            <History size={16} />
+            Older
+            <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full text-xs">
+              {olderReports.length}
+            </span>
+          </button>
         </div>
 
-        {/* Loading state */}
-        {isLoading && (
-          <div className="p-4 space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div key={i} className="bg-white rounded-xl p-4 shadow-sm">
-                <div className="flex gap-3">
-                  <div className="w-20 h-20 rounded-lg bg-slate-200 animate-pulse" />
-                  <div className="flex-1 space-y-2">
-                    <div className="h-5 w-24 bg-slate-200 animate-pulse rounded" />
-                    <div className="h-4 w-48 bg-slate-200 animate-pulse rounded" />
-                    <div className="h-4 w-32 bg-slate-200 animate-pulse rounded" />
+        {/* Tab description */}
+        <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 border-b border-slate-100 flex-shrink-0">
+          {activeTab === 'recent' 
+            ? '📍 Reports from the last 12 hours, sorted by distance' 
+            : '📜 Reports from 12-48 hours ago'
+          }
+        </div>
+
+        {/* Scrollable reports list */}
+        <div className="flex-1 overflow-y-auto">
+          {/* Loading state */}
+          {isLoading && (
+            <div className="p-4 space-y-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="bg-white rounded-xl p-4 shadow-sm">
+                  <div className="flex gap-3">
+                    <div className="w-20 h-20 rounded-lg bg-slate-200 animate-pulse" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-5 w-24 bg-slate-200 animate-pulse rounded" />
+                      <div className="h-4 w-48 bg-slate-200 animate-pulse rounded" />
+                      <div className="h-4 w-32 bg-slate-200 animate-pulse rounded" />
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
 
-        {/* Empty state */}
-        {!isLoading && sortedReports.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-            <div className="text-6xl mb-4">🛣️</div>
-            <h3 className="text-lg font-semibold text-slate-900 mb-2">
-              {activeSection === 'recent' ? 'No recent reports' : 'No older reports'}
-            </h3>
-            <p className="text-slate-600 max-w-xs">
-              {activeSection === 'recent' 
-                ? 'Be the first to report road conditions! Tap the + button below.'
-                : 'No reports from the past 12-48 hours.'
-              }
-            </p>
-          </div>
-        )}
+          {/* Empty state */}
+          {!isLoading && sortedReports.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
+              <div className="text-6xl mb-4">{activeTab === 'recent' ? '🛣️' : '📜'}</div>
+              <h3 className="text-lg font-semibold text-slate-900 mb-2">
+                {activeTab === 'recent' ? 'No recent reports' : 'No older reports'}
+              </h3>
+              <p className="text-slate-600 max-w-xs">
+                {activeTab === 'recent' 
+                  ? 'Be the first to report road conditions! Tap the + button below.'
+                  : 'No reports from 12-48 hours ago in this area.'
+                }
+              </p>
+            </div>
+          )}
 
-        {/* Reports list */}
-        {!isLoading && sortedReports.length > 0 && (
-          <div className="p-4 space-y-4 pb-24">
-            {sortedReports.map((report: any) => (
-              <div 
-                key={report.id} 
-                id={`report-${report.id}`}
-                className={`transition-all ${
-                  selectedReport?.id === report.id ? 'ring-2 ring-blue-500 rounded-xl' : ''
-                }`}
-              >
-                {report.distance !== undefined && (
-                  <div className="flex items-center gap-1 text-xs text-slate-500 mb-1 ml-1">
-                    <MapPin size={12} />
-                    <span>{formatDistance(report.distance)} away</span>
-                  </div>
-                )}
-                <ReportCard report={report} />
-              </div>
-            ))}
-          </div>
-        )}
+          {/* Reports list */}
+          {!isLoading && sortedReports.length > 0 && (
+            <div className="p-4 space-y-4 pb-24">
+              {sortedReports.map((report: any) => (
+                <div 
+                  key={report.id} 
+                  id={`report-${report.id}`}
+                  className={`transition-all ${
+                    selectedReport?.id === report.id ? 'ring-2 ring-blue-500 rounded-xl' : ''
+                  }`}
+                >
+                  {report.distance !== undefined && (
+                    <div className="flex items-center gap-1 text-xs text-slate-500 mb-1 ml-1">
+                      <MapPin size={12} />
+                      <span>{formatDistance(report.distance)} away</span>
+                    </div>
+                  )}
+                  <ReportCard report={report} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
