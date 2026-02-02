@@ -128,20 +128,29 @@ export function MapView() {
         {/* Render clusters and individual markers */}
         {clusters.map((cluster) => {
           const [lng, lat] = cluster.geometry.coordinates;
-          const { cluster: isCluster, point_count: pointCount } = cluster.properties;
+
+          const isCluster = cluster.properties.cluster as boolean;
 
           if (isCluster) {
-            const size = Math.min(50, Math.max(30, 30 + (pointCount / points.length) * 30));
+            const pointCount = (cluster.properties as any).point_count as number;
+            const clusterId =
+              (cluster.id as number) ?? ((cluster.properties as any).cluster_id as number);
+
+            const size = Math.min(
+              50,
+              Math.max(30, 30 + (pointCount / Math.max(points.length, 1)) * 30)
+            );
+
             return (
               <Marker
-                key={`cluster-${cluster.id}`}
+                key={`cluster-${clusterId}`}
                 latitude={lat}
                 longitude={lng}
                 anchor="center"
               >
                 <div
-                  onClick={() => handleClusterClick(cluster.id as number, lat, lng)}
-                  className="rounded-full border-3 border-white shadow-lg flex items-center justify-center cursor-pointer hover:scale-110 transition-transform bg-blue-600"
+                  onClick={() => handleClusterClick(clusterId, lat, lng)}
+                  className="rounded-full border-2 border-white shadow-lg flex items-center justify-center cursor-pointer hover:scale-110 transition-transform bg-blue-600"
                   style={{ width: `${size}px`, height: `${size}px` }}
                 >
                   <span className="text-white font-bold text-sm">{pointCount}</span>
@@ -150,7 +159,7 @@ export function MapView() {
             );
           }
 
-          const report = cluster.properties.report as Report;
+          const report = (cluster.properties as any).report as Report;
           const isSelected = selectedReport?.id === report.id;
 
           return (
@@ -170,11 +179,14 @@ export function MapView() {
                 }`}
                 style={{ backgroundColor: getConditionColor(report.condition) }}
               >
-                {report.condition === 'ice' || report.condition === 'whiteout' ? '!' : report.condition[0].toUpperCase()}
+                {report.condition === 'ice' || report.condition === 'whiteout'
+                  ? '!'
+                  : report.condition[0].toUpperCase()}
               </div>
             </Marker>
           );
         })}
+
 
         {/* Popup */}
         {selectedReport && selectedReport.location && (

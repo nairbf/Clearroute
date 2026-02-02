@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import Map, { 
-  Marker, 
+import Map, {
+  Marker,
   NavigationControl,
   GeolocateControl,
   Source,
   Layer,
   type MapRef,
-  type MapLayerMouseEvent
+  type MapLayerMouseEvent,
 } from 'react-map-gl/maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapPin, Loader2, Check, Navigation, Crosshair } from 'lucide-react';
@@ -28,15 +28,20 @@ interface LocationPickerProps {
   onClose: () => void;
 }
 
+type LocationInfo = {
+  road: string | null;
+  display: string;
+  county: string | null;
+};
+
 export function LocationPicker({ initialLocation, onLocationSelect, onClose }: LocationPickerProps) {
   const mapRef = useRef<MapRef>(null);
-  const [markerPosition, setMarkerPosition] = useState(initialLocation || { lat: 43.0481, lng: -76.1474 });
+
+  const [markerPosition, setMarkerPosition] = useState(
+    initialLocation || { lat: 43.0481, lng: -76.1474 }
+  );
   const [isGeocoding, setIsGeocoding] = useState(false);
-  const [locationInfo, setLocationInfo] = useState<{
-    road: string | null;
-    display: string;
-    county: string | null;
-  } | null>(null);
+  const [locationInfo, setLocationInfo] = useState<LocationInfo | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
   // Geocode a location
@@ -49,7 +54,7 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
         display: details.displayName,
         county: details.county,
       });
-    } catch (error) {
+    } catch {
       setLocationInfo({
         road: null,
         display: `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
@@ -60,18 +65,21 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
     }
   }, []);
 
-  // Geocode initial position on mount
+  // Geocode initial position on mount + when initialLocation changes
   useEffect(() => {
     if (initialLocation) {
       geocodeLocation(initialLocation.lat, initialLocation.lng);
     }
-  }, []);
+  }, [initialLocation, geocodeLocation]);
 
-  const handleMapClick = useCallback((e: MapLayerMouseEvent) => {
-    const { lng, lat } = e.lngLat;
-    setMarkerPosition({ lat, lng });
-    geocodeLocation(lat, lng);
-  }, [geocodeLocation]);
+  const handleMapClick = useCallback(
+    (e: MapLayerMouseEvent) => {
+      const { lng, lat } = e.lngLat;
+      setMarkerPosition({ lat, lng });
+      geocodeLocation(lat, lng);
+    },
+    [geocodeLocation]
+  );
 
   const handleMarkerDragStart = useCallback(() => {
     setIsDragging(true);
@@ -82,17 +90,20 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
     setMarkerPosition({ lat, lng });
   }, []);
 
-  const handleMarkerDragEnd = useCallback((e: { lngLat: { lng: number; lat: number } }) => {
-    const { lng, lat } = e.lngLat;
-    setIsDragging(false);
-    setMarkerPosition({ lat, lng });
-    geocodeLocation(lat, lng);
-  }, [geocodeLocation]);
+  const handleMarkerDragEnd = useCallback(
+    (e: { lngLat: { lng: number; lat: number } }) => {
+      const { lng, lat } = e.lngLat;
+      setIsDragging(false);
+      setMarkerPosition({ lat, lng });
+      geocodeLocation(lat, lng);
+    },
+    [geocodeLocation]
+  );
 
-  const handleConfirm = () => {
+  const handleConfirm = useCallback(() => {
     // Always include coordinates in the location display
     let displayName = '';
-    
+
     if (locationInfo?.road) {
       // "Road Name (lat, lng)"
       displayName = `${locationInfo.road} (${markerPosition.lat.toFixed(4)}, ${markerPosition.lng.toFixed(4)})`;
@@ -104,11 +115,17 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
       displayName = `${markerPosition.lat.toFixed(4)}, ${markerPosition.lng.toFixed(4)}`;
     }
 
-    console.log('LocationPicker confirm:', { 
-      lat: markerPosition.lat, 
-      lng: markerPosition.lng, 
+    // IMPORTANT: normalize county to avoid passing undefined into mapCountyName
+    const rawCounty: string | null = locationInfo?.county ?? null;
+    const county: County | null = rawCounty ? (mapCountyName(rawCounty) as County | null) : null;
+
+    console.log('LocationPicker confirm:', {
+      lat: markerPosition.lat,
+      lng: markerPosition.lng,
       displayName,
-      road: locationInfo?.road 
+      road: locationInfo?.road,
+      rawCounty,
+      county,
     });
 
     onLocationSelect({
@@ -116,21 +133,22 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
       lng: markerPosition.lng,
       roadName: locationInfo?.road || null,
       locationDisplay: displayName,
-      county: mapCountyName(locationInfo?.county) as County | null,
+      county,
     });
-  };
+  }, [locationInfo, markerPosition, onLocationSelect]);
 
-  const handleRecenter = () => {
-    if (initialLocation) {
-      mapRef.current?.flyTo({ 
-        center: [initialLocation.lng, initialLocation.lat], 
-        zoom: 16,
-        duration: 1000
-      });
-      setMarkerPosition(initialLocation);
-      geocodeLocation(initialLocation.lat, initialLocation.lng);
-    }
-  };
+  const handleRecenter = useCallback(() => {
+    if (!initialLocation) return;
+
+    mapRef.current?.flyTo({
+      center: [initialLocation.lng, initialLocation.lat],
+      zoom: 16,
+      duration: 1000,
+    });
+
+    setMarkerPosition(initialLocation);
+    geocodeLocation(initialLocation.lat, initialLocation.lng);
+  }, [initialLocation, geocodeLocation]);
 
   const circleGeoJSON = {
     type: 'Feature' as const,
@@ -163,8 +181,8 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
           onClick={handleMapClick}
         >
           <NavigationControl position="top-right" />
-          <GeolocateControl 
-            position="top-right" 
+          <GeolocateControl
+            position="top-right"
             trackUserLocation
             onGeolocate={(e) => {
               const { latitude, longitude } = e.coords;
@@ -201,9 +219,9 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
             <div className={`transition-transform ${isDragging ? 'scale-125' : 'scale-100'}`}>
               <div className="relative">
                 <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-1 bg-black/20 rounded-full blur-sm" />
-                <MapPin 
-                  size={44} 
-                  className="text-blue-600 drop-shadow-lg" 
+                <MapPin
+                  size={44}
+                  className="text-blue-600 drop-shadow-lg"
                   fill="#2563eb"
                   strokeWidth={1.5}
                 />
@@ -217,9 +235,11 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
         <div className="absolute top-4 left-4 right-4 bg-white rounded-xl shadow-lg overflow-hidden">
           <div className="p-3">
             <div className="flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
-                locationInfo?.road ? 'bg-green-100' : 'bg-slate-100'
-              }`}>
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 ${
+                  locationInfo?.road ? 'bg-green-100' : 'bg-slate-100'
+                }`}
+              >
                 {isGeocoding ? (
                   <Loader2 size={20} className="text-blue-600 animate-spin" />
                 ) : locationInfo?.road ? (
@@ -250,11 +270,16 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
               </div>
             </div>
           </div>
-          
-          <div className={`h-1 transition-colors ${
-            isGeocoding ? 'bg-blue-400 animate-pulse' : 
-            locationInfo?.road ? 'bg-green-500' : 'bg-amber-400'
-          }`} />
+
+          <div
+            className={`h-1 transition-colors ${
+              isGeocoding
+                ? 'bg-blue-400 animate-pulse'
+                : locationInfo?.road
+                  ? 'bg-green-500'
+                  : 'bg-amber-400'
+            }`}
+          />
         </div>
 
         {/* Recenter button */}
@@ -287,9 +312,7 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
             onClick={handleConfirm}
             disabled={isGeocoding}
             className={`flex-1 py-3 px-4 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 ${
-              locationInfo?.road 
-                ? 'bg-green-600 text-white hover:bg-green-700' 
-                : 'bg-blue-600 text-white hover:bg-blue-700'
+              locationInfo?.road ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-blue-600 text-white hover:bg-blue-700'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
             {isGeocoding ? (

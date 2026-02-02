@@ -195,23 +195,33 @@ export function MainView() {
             </Marker>
           )}
 
-          {clusters.map((cluster) => {
+            {clusters.map((cluster) => {
             const [lng, lat] = cluster.geometry.coordinates;
-            const { cluster: isCluster, point_count: pointCount } = cluster.properties;
+
+            const isCluster = cluster.properties.cluster as boolean;
 
             if (isCluster) {
-              const size = Math.min(45, Math.max(28, 28 + (pointCount / points.length) * 25));
-              return (
-                <Marker key={`cluster-${cluster.id}`} latitude={lat} longitude={lng} anchor="center">
-                  <div
-                    onClick={() => handleClusterClick(cluster.id as number, lat, lng)}
+                const pointCount = (cluster.properties as any).point_count as number;
+
+                const clusterId =
+                (cluster.id as number) ?? ((cluster.properties as any).cluster_id as number);
+
+                const size = Math.min(
+                45,
+                Math.max(28, 28 + (pointCount / Math.max(points.length, 1)) * 25)
+                );
+
+                return (
+                <Marker key={`cluster-${clusterId}`} latitude={lat} longitude={lng} anchor="center">
+                    <div
+                    onClick={() => handleClusterClick(clusterId, lat, lng)}
                     className="rounded-full border-2 border-white shadow-lg flex items-center justify-center cursor-pointer hover:scale-110 transition-transform bg-blue-600"
                     style={{ width: `${size}px`, height: `${size}px` }}
-                  >
+                    >
                     <span className="text-white font-bold text-xs">{pointCount}</span>
-                  </div>
+                    </div>
                 </Marker>
-              );
+                );
             }
 
             const report = cluster.properties.report as Report;

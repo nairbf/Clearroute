@@ -94,6 +94,7 @@ export default function ReportDetailPage() {
   }
 
   const trustStars = Math.min(3, Math.max(1, Math.ceil((report.user?.trust_score || 0) / 20)));
+  const comments = (report as any).comments as Array<{ id: string; content: string; created_at: string; user?: { username?: string | null } }> | undefined;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -165,7 +166,7 @@ export default function ReportDetailPage() {
         {/* Time */}
         <p className="text-sm text-slate-500 mb-4">
           Reported {formatTimeAgo(report.created_at)}
-          {report.confirmation_count > 0 && (
+          {report.confirmation_count > 0 && report.last_confirmed_at && (
             <> · Last confirmed {formatTimeAgo(report.last_confirmed_at)}</>
           )}
         </p>
@@ -249,7 +250,7 @@ export default function ReportDetailPage() {
 
         {/* Comments */}
         <div className="mb-6">
-          <h3 className="font-semibold mb-3">Comments ({report.comments?.length || 0})</h3>
+          <h3 className="font-semibold mb-3">Comments ({comments?.length || 0})</h3>
           
           {/* Comment form */}
           {user ? (
@@ -285,7 +286,7 @@ export default function ReportDetailPage() {
 
           {/* Comments list */}
           <div className="space-y-3">
-            {report.comments?.map((c) => (
+            {comments?.map((c) => (
               <div key={c.id} className="bg-slate-100 rounded-lg p-3">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="font-medium text-sm">
@@ -299,7 +300,7 @@ export default function ReportDetailPage() {
               </div>
             ))}
             
-            {(!report.comments || report.comments.length === 0) && (
+            {(!comments || comments.length === 0) && (
               <p className="text-slate-500 text-sm">No comments yet.</p>
             )}
           </div>
