@@ -13,9 +13,8 @@ import Map, {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapPin, Loader2, Check, Navigation, Crosshair } from 'lucide-react';
 import { getLocationDetails, mapCountyName } from '@/lib/geocoding';
+import { getMapStyle } from '@/lib/mapStyles';
 import type { County } from '@/types';
-
-const MAP_STYLE = 'https://tiles.stadiamaps.com/styles/osm_bright.json';
 
 interface LocationPickerProps {
   initialLocation: { lat: number; lng: number } | null;
@@ -159,7 +158,7 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
             longitude: markerPosition.lng,
             zoom: 16,
           }}
-          mapStyle={MAP_STYLE}
+          mapStyle={getMapStyle('osm_bright')}
           style={{ width: '100%', height: '100%' }}
           onClick={handleMapClick}
         >

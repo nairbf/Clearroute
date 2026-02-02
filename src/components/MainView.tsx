@@ -14,10 +14,9 @@ import { useAppStore } from '@/lib/store';
 import { useReports } from '@/hooks/useReports';
 import { ReportCard } from './ReportCard';
 import { getConditionColor } from '@/lib/utils';
+import { getMapStyle } from '@/lib/mapStyles';
 import { Maximize2, Minimize2, MapPin, Clock, History } from 'lucide-react';
 import type { Report } from '@/types';
-
-const MAP_STYLE = 'https://tiles.stadiamaps.com/styles/alidade_smooth.json';
 
 const CNY_CENTER = { lat: 43.0481, lng: -76.1474 };
 const CNY_BOUNDS: [[number, number], [number, number]] = [
@@ -181,7 +180,7 @@ export function MainView() {
           onMove={(evt) => setViewState(evt.viewState)}
           onMoveEnd={updateBounds}
           onLoad={updateBounds}
-          mapStyle={MAP_STYLE}
+          mapStyle={getMapStyle('alidade_smooth')}
           style={{ width: '100%', height: '100%' }}
           maxBounds={CNY_BOUNDS}
           minZoom={7}
