@@ -16,7 +16,7 @@ interface SearchResultsProps {
 export function SearchResults({ query, open, onClose, onSelectReport }: SearchResultsProps) {
   const [results, setResults] = useState<Report[]>([]);
   const [loading, setLoading] = useState(false);
-  const { setActiveView } = useAppStore();
+
 
   useEffect(() => {
     if (open && query.length >= 2) {
@@ -32,7 +32,7 @@ export function SearchResults({ query, open, onClose, onSelectReport }: SearchRe
       const response = await fetch(`/api/reports/search?q=${encodeURIComponent(searchQuery)}`);
       if (response.ok) {
         const data = await response.json();
-        setResults(data.reports || []);
+        setResults(data.reports || []); bv
       }
     } catch (error) {
       console.error('Search error:', error);
@@ -43,7 +43,6 @@ export function SearchResults({ query, open, onClose, onSelectReport }: SearchRe
 
   const handleSelectReport = (report: Report) => {
     onSelectReport(report);
-    setActiveView('map');
     onClose();
   };
 

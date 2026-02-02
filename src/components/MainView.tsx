@@ -192,7 +192,7 @@ export function MainView() {
 
           {userLocation && (
             <Marker latitude={userLocation.lat} longitude={userLocation.lng} anchor="center">
-              <div className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg pulse-ring" />
+              <div className="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-lg" />
             </Marker>
           )}
 
@@ -259,7 +259,7 @@ export function MainView() {
 
         <div className="absolute top-2 left-2 bg-white/95 backdrop-blur-sm rounded-lg shadow px-2 py-1.5 text-xs">
           <span className="font-semibold">{mapReports.length}</span>
-          <span className="text-slate-500"> reports on map</span>
+          <span className="text-slate-500"> on map</span>
         </div>
 
         <button
@@ -297,7 +297,9 @@ export function MainView() {
           >
             <Clock size={16} />
             Recent
-            <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full text-xs">
+            <span className={`px-1.5 py-0.5 rounded-full text-xs ${
+              activeTab === 'recent' ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-600'
+            }`}>
               {recentReports.length}
             </span>
           </button>
@@ -311,7 +313,9 @@ export function MainView() {
           >
             <History size={16} />
             Older
-            <span className="bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full text-xs">
+            <span className={`px-1.5 py-0.5 rounded-full text-xs ${
+              activeTab === 'older' ? 'bg-blue-100 text-blue-600' : 'bg-slate-200 text-slate-600'
+            }`}>
               {olderReports.length}
             </span>
           </button>
@@ -320,7 +324,7 @@ export function MainView() {
         {/* Tab description */}
         <div className="px-4 py-2 bg-slate-50 text-xs text-slate-500 border-b border-slate-100 flex-shrink-0">
           {activeTab === 'recent' 
-            ? '📍 Reports from the last 12 hours, sorted by distance' 
+            ? '📍 Reports from the last 12 hours' 
             : '📜 Reports from 12-48 hours ago'
           }
         </div>
