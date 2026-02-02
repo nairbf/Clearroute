@@ -150,7 +150,7 @@ Key tables:
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anonymous key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (server only) |
-| `NEXT_PUBLIC_STADIA_API_KEY` | Stadia Maps API key (optional) |
+| `NEXT_PUBLIC_STADIA_API_KEY` | Stadia Maps API key (optional; required for Stadia styles, otherwise fallback MapLibre demo tiles are used) |
 
 ## Contributing
 
