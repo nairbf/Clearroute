@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
       notes,
       photo_urls: photo_urls || [],
       status: 'active',
-      expires_at: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+      expires_at: new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
     })
     .select()
     .single();
