@@ -14,9 +14,8 @@ import { useAppStore } from '@/lib/store';
 import { useReports } from '@/hooks/useReports';
 import { ReportCard } from './ReportCard';
 import { getConditionColor } from '@/lib/utils';
+import { getMapStyle, MAPLIBRE_FALLBACK_STYLE } from '@/lib/mapStyles';
 import type { Report } from '@/types';
-
-const MAP_STYLE = 'https://tiles.stadiamaps.com/styles/alidade_smooth.json';
 
 const CNY_CENTER = { lat: 43.0481, lng: -76.1474 };
 const CNY_BOUNDS: [[number, number], [number, number]] = [
@@ -33,6 +32,7 @@ export function MapView() {
     longitude: CNY_CENTER.lng,
     zoom: 9,
   });
+  const [mapStyle, setMapStyle] = useState(() => getMapStyle('alidade_smooth'));
   const [bounds, setBounds] = useState<[number, number, number, number]>([-77.5, 42.0, -74.5, 44.5]);
 
   const { data: reports = [], isLoading } = useReports({
@@ -117,7 +117,8 @@ export function MapView() {
         {...viewState}
         onMove={(evt) => setViewState(evt.viewState)}
         onMoveEnd={updateBounds}
-        mapStyle={MAP_STYLE}
+        onError={() => setMapStyle(MAPLIBRE_FALLBACK_STYLE)}
+        mapStyle={mapStyle}
         style={{ width: '100%', height: '100%' }}
         maxBounds={CNY_BOUNDS}
         minZoom={7}

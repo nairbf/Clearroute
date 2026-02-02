@@ -14,10 +14,9 @@ import { useAppStore } from '@/lib/store';
 import { useReports } from '@/hooks/useReports';
 import { ReportCard } from './ReportCard';
 import { getConditionColor } from '@/lib/utils';
+import { getMapStyle, MAPLIBRE_FALLBACK_STYLE } from '@/lib/mapStyles';
 import { Maximize2, Minimize2, MapPin, Clock, History } from 'lucide-react';
 import type { Report } from '@/types';
-
-const MAP_STYLE = 'https://tiles.stadiamaps.com/styles/alidade_smooth.json';
 
 const CNY_CENTER = { lat: 43.0481, lng: -76.1474 };
 const CNY_BOUNDS: [[number, number], [number, number]] = [
@@ -51,6 +50,7 @@ export function MainView() {
     longitude: initialLng,
     zoom: userLocation ? 11 : 9,
   });
+  const [mapStyle, setMapStyle] = useState(() => getMapStyle('alidade_smooth'));
   const [bounds, setBounds] = useState<[number, number, number, number]>([-77.5, 42.0, -74.5, 44.5]);
 
   // Fetch recent reports (last 12 hours)
@@ -99,16 +99,16 @@ export function MainView() {
     return validReports;
   }, [currentReports, userLocation]);
 
-  // Map always shows recent reports
+  // Map shows recent + older reports
   const mapReports = useMemo(() => {
-    return recentReports.filter(r => 
+    return [...recentReports, ...olderReports].filter(r => 
       r.location && 
       typeof r.location.lat === 'number' && 
       typeof r.location.lng === 'number' &&
       r.location.lat !== 0 &&
       r.location.lng !== 0
     );
-  }, [recentReports]);
+  }, [recentReports, olderReports]);
 
   const points = useMemo(() => 
     mapReports.map((report) => ({
@@ -181,7 +181,8 @@ export function MainView() {
           onMove={(evt) => setViewState(evt.viewState)}
           onMoveEnd={updateBounds}
           onLoad={updateBounds}
-          mapStyle={MAP_STYLE}
+          onError={() => setMapStyle(MAPLIBRE_FALLBACK_STYLE)}
+          mapStyle={mapStyle}
           style={{ width: '100%', height: '100%' }}
           maxBounds={CNY_BOUNDS}
           minZoom={7}

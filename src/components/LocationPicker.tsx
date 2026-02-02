@@ -13,9 +13,8 @@ import Map, {
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { MapPin, Loader2, Check, Navigation, Crosshair } from 'lucide-react';
 import { getLocationDetails, mapCountyName } from '@/lib/geocoding';
+import { getMapStyle, MAPLIBRE_FALLBACK_STYLE } from '@/lib/mapStyles';
 import type { County } from '@/types';
-
-const MAP_STYLE = 'https://tiles.stadiamaps.com/styles/osm_bright.json';
 
 interface LocationPickerProps {
   initialLocation: { lat: number; lng: number } | null;
@@ -39,6 +38,7 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
     county: string | null;
   } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [mapStyle, setMapStyle] = useState(() => getMapStyle('osm_bright'));
 
   // Geocode a location
   const geocodeLocation = useCallback(async (lat: number, lng: number) => {
@@ -159,7 +159,8 @@ export function LocationPicker({ initialLocation, onLocationSelect, onClose }: L
             longitude: markerPosition.lng,
             zoom: 16,
           }}
-          mapStyle={MAP_STYLE}
+          onError={() => setMapStyle(MAPLIBRE_FALLBACK_STYLE)}
+          mapStyle={mapStyle}
           style={{ width: '100%', height: '100%' }}
           onClick={handleMapClick}
         >
