@@ -14,7 +14,6 @@ import { useAppStore } from '@/lib/store';
 import { useReports } from '@/hooks/useReports';
 import { ReportCard } from './ReportCard';
 import { getConditionColor } from '@/lib/utils';
-import { getMapStyle } from '@/lib/mapStyles';
 import type { Report } from '@/types';
 
 const CNY_CENTER = { lat: 43.0481, lng: -76.1474 };
@@ -22,6 +21,26 @@ const CNY_BOUNDS: [[number, number], [number, number]] = [
   [-77.5, 42.0],
   [-74.5, 44.5],
 ];
+
+// Raster basemap (OSM). Using raster avoids vector-tile worker issues that can cause a solid background.
+const OSM_RASTER_STYLE = {
+  version: 8,
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+      tileSize: 256,
+      attribution: '© OpenStreetMap contributors',
+    },
+  },
+  layers: [
+    {
+      id: 'osm-raster',
+      type: 'raster',
+      source: 'osm',
+    },
+  ],
+} as const;
 
 export function MapView() {
   const mapRef = useRef<MapRef>(null);
@@ -116,7 +135,12 @@ export function MapView() {
         {...viewState}
         onMove={(evt) => setViewState(evt.viewState)}
         onMoveEnd={updateBounds}
-        mapStyle={getMapStyle('alidade_smooth')}
+        onError={(e) => {
+          // Helps diagnose style/tile loading issues (401/403/CORS/404)
+          // @ts-expect-error react-map-gl event typing is loose
+          console.error('Map error:', e?.error || e);
+        }}
+        mapStyle={OSM_RASTER_STYLE as any}
         style={{ width: '100%', height: '100%' }}
         maxBounds={CNY_BOUNDS}
         minZoom={7}
